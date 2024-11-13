@@ -18,11 +18,13 @@ WhisperAudio, and OpenAI services.
 """
 
 import json
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
 import numpy as np
 import pyaudio
+from utils.file_utils import get_resource_path
 from Model import ModelManager
 import threading
 
@@ -123,8 +125,6 @@ class SettingsWindow():
             "Use best_of",
             "best_of",
             "Real Time Audio Length",
-            "Use Pre-Processing",
-            "Use Post-Processing",
         ]
 
         self.editable_settings = {
@@ -194,6 +194,7 @@ class SettingsWindow():
         self.AISCRIBE2 = self.load_aiscribe2_from_file() or "Remember, the Subjective section should reflect the patient's perspective and complaints as mentioned in the conversation. The Objective section should only include observable or measurable data from the conversation. The Assessment should be a summary of your understanding and potential diagnoses, considering the conversation's content. The Plan should outline the proposed management, strictly based on the dialogue provided. Do not add any information that did not occur and do not make assumptions. Strictly extract facts from the conversation."
 
         self.get_dropdown_values_and_mapping()
+        self._create_settings_and_aiscribe_if_not_exist()
 
     def get_dropdown_values_and_mapping(self):
         """
@@ -236,7 +237,7 @@ class SettingsWindow():
             tuple: A tuple containing the IPs, ports, SSL settings, and API key.
         """
         try:
-            with open(filename, 'r') as file:
+            with open(get_resource_path(filename), 'r') as file:
                 try:
                     settings = json.load(file)
                 except json.JSONDecodeError:
@@ -281,7 +282,7 @@ class SettingsWindow():
             "ssl_selfcert": str(self.SSL_SELFCERT),
             "api_style": self.API_STYLE
         }
-        with open('settings.txt', 'w') as file:
+        with open(get_resource_path('settings.txt'), 'w') as file:
             json.dump(settings, file)
 
     def save_settings(self, openai_api_key, aiscribe_text, aiscribe2_text, settings_window,
@@ -318,9 +319,9 @@ class SettingsWindow():
         self.AISCRIBE = aiscribe_text
         self.AISCRIBE2 = aiscribe2_text
 
-        with open('aiscribe.txt', 'w') as f:
+        with open(get_resource_path('aiscribe.txt'), 'w') as f:
             f.write(self.AISCRIBE)
-        with open('aiscribe2.txt', 'w') as f:
+        with open(get_resource_path('aiscribe2.txt'), 'w') as f:
             f.write(self.AISCRIBE2)
       
     def load_aiscribe_from_file(self):
@@ -331,7 +332,7 @@ class SettingsWindow():
         :rtype: str or None
         """
         try:
-            with open('aiscribe.txt', 'r') as f:
+            with open(get_resource_path('aiscribe.txt'), 'r') as f:
                 return f.read()
         except FileNotFoundError:
             return None
@@ -344,7 +345,7 @@ class SettingsWindow():
         :rtype: str or None
         """
         try:
-            with open('aiscribe2.txt', 'r') as f:
+            with open(get_resource_path('aiscribe2.txt'), 'r') as f:
                 return f.read()
         except FileNotFoundError:
             return None
@@ -408,9 +409,9 @@ class SettingsWindow():
         """
         try:
             # Open the files and immediately close them to clear their contents.
-            open('settings.txt', 'w').close()  
-            open('aiscribe.txt', 'w').close()
-            open('aiscribe2.txt', 'w').close()
+            open(get_resource_path('settings.txt'), 'w').close()  
+            open(get_resource_path('aiscribe.txt'), 'w').close()
+            open(get_resource_path('aiscribe2.txt'), 'w').close()
 
             # Display a message box informing the user of successful reset.
             messagebox.showinfo("Settings Reset", "Settings have been reset. Please restart.")
@@ -527,3 +528,16 @@ class SettingsWindow():
         if old_architecture != new_architecture and new_use_local_llm == 1:
             ModelManager.unload_model()
             ModelManager.start_model_threaded(self, self.main_window.root)
+
+    def _create_settings_and_aiscribe_if_not_exist(self):
+        if not os.path.exists(get_resource_path('settings.txt')):
+            print("Settings file not found. Creating default settings file.")
+            self.save_settings_to_file()
+        if not os.path.exists(get_resource_path('aiscribe.txt')):
+            print("AIScribe file not found. Creating default AIScribe file.")
+            with open(get_resource_path('aiscribe.txt'), 'w') as f:
+                f.write(self.AISCRIBE)
+        if not os.path.exists(get_resource_path('aiscribe2.txt')):
+            print("AIScribe2 file not found. Creating default AIScribe2 file.")
+            with open(get_resource_path('aiscribe2.txt'), 'w') as f:
+                f.write(self.AISCRIBE2)

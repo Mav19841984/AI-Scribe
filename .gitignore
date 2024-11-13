@@ -12,3 +12,5 @@ client.spec
 .aider*
 
 realtime.wav
+src/FreeScribe.client/models
+freescribe-client.spec

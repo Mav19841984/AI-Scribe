@@ -114,11 +114,12 @@ class Model:
 
             # reset the model tokens
             self.model.reset()
-            
             return response["choices"][0]["message"]["content"]
             
         except Exception as e:
             print(f"GPU inference error ({e.__class__.__name__}): {str(e)}")
+            return f"({e.__class__.__name__}): {str(e)}"
+
     
     def get_gpu_info(self) -> Dict[str, Any]:
         """

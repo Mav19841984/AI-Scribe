@@ -5,7 +5,7 @@
 OutFile "..\dist\FreeScribeInstaller.exe"
 
 ; Define the default installation directory to AppData
-InstallDir "$APPDATA\FreeScribe"
+InstallDir "$PROGRAMFILES\FreeScribe"
 
 ; Define the name of the installer
 Name "FreeScribe"
@@ -90,13 +90,15 @@ Section "MainSection" SEC01
         File /r "..\dist\freescribe-client-nvidia\_internal"
     ${EndIf}
 
-    IfFileExists "$INSTDIR\settings.txt" +7
+    IfFileExists "$APPDATA\FreeScribe\settings.txt" +9
+    CreateDirectory "$APPDATA\FreeScribe"
 
-    ; Add default settings file
+    ; Add default settings file to AppData
+    SetOutPath "$APPDATA\FreeScribe"
     File "..\default_settings.txt"
 
     ; Rename default_settings.txt to settings.txt
-    Rename "$INSTDIR\default_settings.txt" "$INSTDIR\settings.txt"
+    Rename "$APPDATA\FreeScribe\default_settings.txt" "$APPDATA\FreeScribe\settings.txt"
 
     ; add presets
     CreateDirectory "$INSTDIR\presets"
@@ -114,7 +116,7 @@ Section "MainSection" SEC01
 SectionEnd
 
 Section "GGUF Installs" GGUF_INSTALLS
-    AddSize 4493079 ; Add the size in kilobyes for the models
+    AddSize 2800000 ; Add the size in kilobyes for the models
 
     CreateDirectory "$INSTDIR\models"
     SetOutPath "$INSTDIR\models"
@@ -156,8 +158,11 @@ Page Custom ARCHITECHTURE_SELECT
 !define MUI_FINISHPAGE_RUN "$INSTDIR\freescribe-client.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Run App now"
 !insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_LANGUAGE English
 
 ; Define the uninstaller pages
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_UNPAGE_FINISH
+
+; Define the languages
+!insertmacro MUI_LANGUAGE English
