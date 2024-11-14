@@ -57,6 +57,8 @@ FunctionEnd
 
 ; Callback function for radio button clicks
 Function OnRadioClick
+    Pop $0 ; Get the handle of the clicked control
+
     ${If} $0 == $CPU_RADIO
         StrCpy $SELECTED_OPTION "CPU"
     ${ElseIf} $0 == $NVIDIA_RADIO
