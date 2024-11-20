@@ -34,11 +34,6 @@ jobs:
         run: |
           pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
 
-      - name: Zip CUDA-enabled executable
-        run: |
-          Compress-Archive -Path dist\freescribe-client-nvidia -DestinationPath dist\freescribe-client-nvidia.zip
-        shell: pwsh
-
       # Create CPU-only executable
       - name: Uninstall CUDA-enabled llama_cpp (if necessary) and install CPU-only llama_cpp
         run: |
@@ -48,11 +43,6 @@ jobs:
       - name: Run PyInstaller for CPU-only
         run: |
           pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-cpu --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
-
-      - name: Zip CPU-only executable
-        run: |
-          Compress-Archive -Path dist\freescribe-client-cpu -DestinationPath dist\freescribe-client-cpu.zip
-        shell: pwsh
 
       - name: Set up NSIS
         uses: joncloud/makensis-action@1c9f4bf2ea0c771147db31a2f3a7f5d8705c0105
@@ -96,23 +86,3 @@ jobs:
           asset_path: dist/FreeScribeInstaller.exe
           asset_name: FreeScribeInstaller_windows.exe
           asset_content_type: application/octet-stream
-
-      - name: Upload CUDA-enabled ZIP
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: dist/freescribe-client-nvidia.zip
-          asset_name: freescribe-client-nvidia.zip
-          asset_content_type: application/zip
-
-      - name: Upload CPU-only ZIP
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: dist/freescribe-client-cpu.zip
-          asset_name: freescribe-client-cpu.zip
-          asset_content_type: application/zip

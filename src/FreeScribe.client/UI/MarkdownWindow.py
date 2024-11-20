@@ -48,8 +48,20 @@ class MarkdownWindow:
           messagebox.showerror("Error", "File not found")
           return
 
-        html_label = HTMLLabel(self.window, html=content)
-        html_label.pack(fill="both", expand=True, padx=10, pady=10)
+        # Create a frame to hold the HTMLLabel and scrollbar
+        frame = tk.Frame(self.window)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Create the HTMLLabel widget
+        html_label = HTMLLabel(frame, html=content)
+        html_label.pack(side="left", fill="both", expand=True)
+
+        # Create the scrollbar
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=html_label.yview)
+        scrollbar.pack(side="right", fill="y")
+
+        # Configure the HTMLLabel to use the scrollbar
+        html_label.config(yscrollcommand=scrollbar.set)
 
         if callback:
             var = tk.BooleanVar()

@@ -26,7 +26,16 @@ def get_resource_path(filename: str) -> str:
     """
     if hasattr(sys, '_MEIPASS'):
         base = _get_user_data_dir()
-        return os.path.join(base, 'FreeScribe', filename)
+        freescribe_dir = os.path.join(base, 'FreeScribe')
+        
+        # Check if the FreeScribe directory exists, if not, create it
+        try:
+            if not os.path.exists(freescribe_dir):
+                os.makedirs(freescribe_dir)
+        except OSError as e:
+            raise RuntimeError(f"Failed to create FreeScribe directory: {e}")
+        
+        return os.path.join(freescribe_dir, filename)
     else:
         return os.path.abspath(filename)
 

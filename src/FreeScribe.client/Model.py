@@ -72,6 +72,7 @@ class Model:
                 "n_batch": n_batch
             }
         except Exception as e:
+            self.model = None
             raise e
         
     def generate_response(
@@ -141,7 +142,8 @@ class Model:
     
     def __del__(self):
         """Cleanup GPU memory on deletion"""
-        self.model.close()
+        if self.model is not None:
+            self.model.close()
         self.model = None
 
 class ModelManager:
@@ -202,10 +204,11 @@ class ModelManager:
                     n_batch=512,
                     n_threads=None,
                     seed=1337)
-            except ValueError:
+            except Exception as e:
                 # model doesnt exist
                 #TODO: Logo to system log
-                    messagebox.showerror("Model Error", f"Model failed to load. Please ensure you have a valid model selected in the settings. Currently trying to load: {os.path.abspath(model_path)}")
+                messagebox.showerror("Model Error", f"Model failed to load. Please ensure you have a valid model selected in the settings. Currently trying to load: {os.path.abspath(model_path)}. Error received ({e.__class__.__name__}): {str(e)}")
+                ModelManager.local_model = None
 
         thread = threading.Thread(target=load_model)
         thread.start()
