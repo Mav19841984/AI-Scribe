@@ -25,7 +25,7 @@ jobs:
       - name: Install CUDA-enabled llama_cpp
         run: |
           pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
-          pip install --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple pytorch==2.2.2
+          pip install --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple torch==2.2.2
 
       - name: Install requirements
         run: |
@@ -38,9 +38,9 @@ jobs:
       # Create CPU-only executable
       - name: Uninstall CUDA-enabled llama_cpp (if necessary) and install CPU-only llama_cpp
         run: |
-          pip uninstall -y llama-cpp-python pytorch
+          pip uninstall -y llama-cpp-python torch
           pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
-          pip install pytorch
+          pip install torch==2.2.2
 
       - name: Run PyInstaller for CPU-only
         run: |
