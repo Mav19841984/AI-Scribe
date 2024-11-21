@@ -11,6 +11,7 @@ and Research Students - Software Developer Alex Simko, Pemba Sherpa (F24), and N
 
 """
 
+import os
 import tkinter as tk
 from tkinter import scrolledtext, ttk, filedialog
 import requests
@@ -23,25 +24,19 @@ import json
 import pyaudio
 import tkinter.messagebox as messagebox
 import datetime
-import functools
-import os
 import whisper # python package is named openai-whisper
-from openai import OpenAI
 import scrubadub
 import re
 import speech_recognition as sr # python package is named speechrecognition
 import time
 import queue
-from ContainerManager import ContainerManager
 import atexit
-import asyncio
-from UI.MainWindow import MainWindow
 from UI.MainWindowUI import MainWindowUI
-from UI.SettingsWindowUI import SettingsWindowUI
 from UI.SettingsWindow import SettingsWindow
 from UI.Widgets.CustomTextBox import CustomTextBox
 from UI.LoadingWindow import LoadingWindow
-from Model import Model, ModelManager
+from Model import  ModelManager
+from utils.ip_utils import is_private_ip
 from utils.file_utils import get_file_path, get_resource_path
 
 # GUI Setup
@@ -764,39 +759,29 @@ def generate_note(formatted_message):
                 display_text(f"An error occurred: {e}")
                 return False
 
-
 def show_edit_transcription_popup(formatted_message):
-    popup = tk.Toplevel(root)
-    popup.title("Scrub PHI Prior to GPT")
-    popup.iconbitmap(get_file_path('assets','logo.ico'))
-    text_area = scrolledtext.ScrolledText(popup, height=20, width=80)
-    text_area.pack(padx=10, pady=10)
-
     scrubber = scrubadub.Scrubber()
 
     scrubbed_message = scrubadub.clean(formatted_message)
 
     pattern = r'\b\d{10}\b'     # Any 10 digit number, looks like OHIP
     cleaned_message = re.sub(pattern,'{{OHIP}}',scrubbed_message)
+
+    if (app_settings.editable_settings["Use Local LLM"] or is_private_ip(app_settings.editable_settings["Model Endpoint"])) and not app_settings.editable_settings["Show Scrub PHI"]:
+        generate_note_thread(cleaned_message)
+        return
+    
+    popup = tk.Toplevel(root)
+    popup.title("Scrub PHI Prior to GPT")
+    popup.iconbitmap(get_file_path('assets','logo.ico'))
+    text_area = scrolledtext.ScrolledText(popup, height=20, width=80)
+    text_area.pack(padx=10, pady=10)
     text_area.insert(tk.END, cleaned_message)
 
     def on_proceed():
-
-        loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.")
-        global use_aiscribe
         edited_text = text_area.get("1.0", tk.END).strip()
         popup.destroy()
-        
-        thread = threading.Thread(target=generate_note, args=(edited_text,))
-        thread.start()
-
-        def check_thread_status(thread, loading_window):
-            if thread.is_alive():
-                root.after(500, lambda: check_thread_status(thread, loading_window))
-            else:
-                loading_window.destroy()
-
-        root.after(500, lambda: check_thread_status(thread, loading_window))
+        generate_note_thread(edited_text)        
 
     proceed_button = tk.Button(popup, text="Proceed", command=on_proceed)
     proceed_button.pack(side=tk.RIGHT, padx=10, pady=10)
@@ -805,6 +790,24 @@ def show_edit_transcription_popup(formatted_message):
     cancel_button = tk.Button(popup, text="Cancel", command=popup.destroy)
     cancel_button.pack(side=tk.LEFT, padx=10, pady=10)
 
+def generate_note_thread(text: str):
+    """
+    Generate a note from the given text and update the GUI with the response.
+
+    :param text: The text to generate a note from.
+    :type text: str
+    """
+    loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.")
+    thread = threading.Thread(target=generate_note, args=(text,))
+    thread.start()
+
+    def check_thread_status(thread, loading_window):
+        if thread.is_alive():
+            root.after(500, lambda: check_thread_status(thread, loading_window))
+        else:
+            loading_window.destroy()
+
+    root.after(500, lambda: check_thread_status(thread, loading_window))
 
 def upload_file():
     global uploaded_file_path

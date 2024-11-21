@@ -4,6 +4,10 @@
   - Description: Display welcome message on startup
   - Default: `true`
   - Type: boolean
+- **Show Scrub PHI**
+  - Description: Enable/Disable Scrub PHI (Only for local llm and private network RFC 18/19)
+  - Default: `false`
+  - Type: boolean
 ## Whisper Settings
 - **Whisper Endpoint**
   - Description: API endpoint for Whisper service

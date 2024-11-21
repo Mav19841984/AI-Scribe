@@ -163,7 +163,21 @@ class SettingsWindowUI:
         right_row = 0
 
 
-        self.create_editable_settings_col(left_frame, right_frame, left_row, right_row, self.settings.whisper_settings)
+        left_row, right_row = self.create_editable_settings_col(left_frame, right_frame, left_row, right_row, self.settings.whisper_settings)
+        # create the whisper model dropdown slection
+        tk.Label(right_frame, text="Whisper Model").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
+        whisper_models_drop_down_options = ["medium", "small", "tiny", "tiny.en", "base", "base.en", "small.en", "medium.en", "large"]
+        self.whisper_models_drop_down = ttk.Combobox(right_frame, values=whisper_models_drop_down_options, width=13)
+        self.whisper_models_drop_down.grid(row=right_row, column=1, padx=0, pady=5, sticky="w")
+
+        try:
+            # Try to set the whisper model dropdown to the current model
+            self.whisper_models_drop_down.current(whisper_models_drop_down_options.index(self.settings.editable_settings["Whisper Model"]))
+        except ValueError:
+            # If not in list then just force set text
+            self.whisper_models_drop_down.set(self.settings.editable_settings["Whisper Model"])
+
+        self.settings.editable_settings_entries["Whisper Model"] = self.whisper_models_drop_down
 
     def create_llm_settings(self):
         """
@@ -489,6 +503,13 @@ class SettingsWindowUI:
         This method creates and places UI elements for general settings.
         """
         self.create_editable_settings(self.general_settings_frame, self.settings.general_settings)
+        # Add a note at the bottom of the general settings frame
+        note_text = (
+            "Note: 'Show Scrub PHI' will only work for local LLM and private network.\n"
+            "For internet-facing endpoint, it will be enabled regardless of the 'Show Scrub PHI' value."
+        )
+        note_label = tk.Label(self.general_settings_frame, text=note_text, fg="red", wraplength=400, justify="left")
+        note_label.grid(padx=10, pady=5, sticky="w")
 
 
     def _create_checkbox(self, frame, label, setting_name, row_idx):

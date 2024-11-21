@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Set Hugging Face model URL and output directory
+MODEL_URL="https://huggingface.co/lmstudio-community/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q8_0.gguf?download=true"
+OUTPUT_DIR="/Users/Shared/FreeScribe/models"
+
+# Ensure the output directory exists
+mkdir -p "$OUTPUT_DIR"
+
+echo "Checking if the model already exists..."
+if [ -f "$OUTPUT_DIR/gemma-2-2b-it-Q8_0.gguf" ]; then
+    echo "Model already exists. Skipping download."
+    exit 0
+fi
+echo "Downloading model from Hugging Face..."
+curl -L "$MODEL_URL" -o "$OUTPUT_DIR/gemma-2-2b-it-Q8_0.gguf"
+
+# Check if the download succeeded
+if [ $? -eq 0 ]; then
+    echo "Model downloaded successfully."
+else
+    echo "Failed to download the model. Please check your internet connection."
+    exit 1
+fi
