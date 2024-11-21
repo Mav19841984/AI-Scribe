@@ -64,15 +64,9 @@ jobs:
           Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
         shell: pwsh
 
-      - name: Grant permissions to dist directory
-        shell: cmd
-        run: icacls .\dist /grant Everyone:(F) /T
-
-      - name: Clean previous installer
+      - name: Prepare output directory
         run: |
-          if (Test-Path "dist/FreeScribeInstaller.exe") {
-            Remove-Item -Force "dist/FreeScribeInstaller.exe"
-          }
+          mkdir -p dist
 
       - name: Run NSIS to build installer
         run: |
