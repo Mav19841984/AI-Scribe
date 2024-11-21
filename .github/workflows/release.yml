@@ -71,7 +71,7 @@ jobs:
 
       - name: Run NSIS to build installer
         run: |
-          makensis .\scripts\install.nsi
+          C:\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
 
       - name: Check if alpha release
         id: check_alpha
