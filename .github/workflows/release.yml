@@ -56,10 +56,6 @@ jobs:
           Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\scripts\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
         shell: pwsh
 
-      - name: Prepare output directory
-        run: |
-          mkdir -p dist
-
       - name: Run NSIS to build installer
         run: |
           .\scripts\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
