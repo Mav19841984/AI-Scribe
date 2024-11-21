@@ -22,18 +22,18 @@ jobs:
           architecture: "x64"
 
       # Create CUDA-enabled executable
-      - name: Install CUDA-enabled llama_cpp
-        run: |
-          pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
-          pip install --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple torch==2.2.2
+      # - name: Install CUDA-enabled llama_cpp
+      #   run: |
+      #     pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
+      #     pip install --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple torch==2.2.2
 
-      - name: Install requirements
-        run: |
-          pip install -r client_requirements.txt
+      # - name: Install requirements
+      #   run: |
+      #     pip install -r client_requirements.txt
 
-      - name: Run PyInstaller for NVIDIA
-        run: |
-          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
+      # - name: Run PyInstaller for NVIDIA
+      #   run: |
+      #     pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
 
       # # Create CPU-only executable
       # - name: Uninstall CUDA-enabled llama_cpp (if necessary) and install CPU-only llama_cpp

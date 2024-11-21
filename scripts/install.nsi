@@ -147,34 +147,34 @@ FunctionEnd
 ; Define the section of the installer
 Section "MainSection" SEC01
     Call CleanUninstall
-    ; Set output path to the installation directory
+    ; ; Set output path to the installation directory
     SetOutPath "$INSTDIR"
 
-    ; ${If} $SELECTED_OPTION == "CPU"
+    ; ; ${If} $SELECTED_OPTION == "CPU"
+    ; ;     ; Add files to the installer
+    ; ;     File /r "..\dist\freescribe-client-cpu\freescribe-client-cpu.exe"
+    ; ;     Rename "$INSTDIR\freescribe-client-cpu.exe" "$INSTDIR\freescribe-client.exe"
+    ; ;     File /r "..\dist\freescribe-client-cpu\_internal"
+    ; ; ${EndIf}
+
+    ; ${If} $SELECTED_OPTION == "NVIDIA"
     ;     ; Add files to the installer
-    ;     File /r "..\dist\freescribe-client-cpu\freescribe-client-cpu.exe"
-    ;     Rename "$INSTDIR\freescribe-client-cpu.exe" "$INSTDIR\freescribe-client.exe"
-    ;     File /r "..\dist\freescribe-client-cpu\_internal"
+    ;     File /r "..\dist\freescribe-client-nvidia\freescribe-client-nvidia.exe"
+    ;     Rename "$INSTDIR\freescribe-client-nvidia.exe" "$INSTDIR\freescribe-client.exe"
+    ;     File /r "..\dist\freescribe-client-nvidia\_internal"
     ; ${EndIf}
 
-    ${If} $SELECTED_OPTION == "NVIDIA"
-        ; Add files to the installer
-        File /r "..\dist\freescribe-client-nvidia\freescribe-client-nvidia.exe"
-        Rename "$INSTDIR\freescribe-client-nvidia.exe" "$INSTDIR\freescribe-client.exe"
-        File /r "..\dist\freescribe-client-nvidia\_internal"
-    ${EndIf}
 
+    ; ; add presets
+    ; CreateDirectory "$INSTDIR\presets"
+    ; SetOutPath "$INSTDIR\presets"
+    ; File /r "..\src\FreeScribe.client\presets\*"
 
-    ; add presets
-    CreateDirectory "$INSTDIR\presets"
-    SetOutPath "$INSTDIR\presets"
-    File /r "..\src\FreeScribe.client\presets\*"
+    ; SetOutPath "$INSTDIR"
 
-    SetOutPath "$INSTDIR"
-
-    ; Create a start menu shortcut
-    CreateDirectory "$SMPROGRAMS\FreeScribe"
-    CreateShortcut "$SMPROGRAMS\FreeScribe\FreeScribe.lnk" "$INSTDIR\freescribe-client.exe"
+    ; ; Create a start menu shortcut
+    ; CreateDirectory "$SMPROGRAMS\FreeScribe"
+    ; CreateShortcut "$SMPROGRAMS\FreeScribe\FreeScribe.lnk" "$INSTDIR\freescribe-client.exe"
 
     ; Create an uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"
