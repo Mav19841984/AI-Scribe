@@ -49,29 +49,24 @@ jobs:
       - name: Download and Set up NSIS
         run: |
           curl -L https://sourceforge.net/projects/nsisbi/files/nsisbi3.10.2/nsis-binary-7423-2.zip/download -o nsis.zip
-          Expand-Archive -Path nsis.zip -DestinationPath C:\nsis -Force
+          Expand-Archive -Path nsis.zip -DestinationPath .\nsis -Force
         shell: pwsh
 
       - name: Verify NSIS Installation
         run: |
           dir C:\
           echo "Creating Plugins folder"
-          dir C:\nsis\nsis-binary-7423-2
+          dir .\nsis\nsis-binary-7423-2
         shell: pwsh
 
       - name: Copy Plugins to NSIS Folder
         run: |
-          Copy-Item -Path .\scripts\nsis-plugins\* -Destination C:\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
-        shell: pwsh
-
-      - name: Add NSIS to PATH
-        run: |
-          echo "C:\nsis\bin" >> $env:GITHUB_PATH
+          Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
         shell: pwsh
 
       - name: Run NSIS to build installer
         run: |
-          C:\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
+          .\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
 
       - name: Check if alpha release
         id: check_alpha
