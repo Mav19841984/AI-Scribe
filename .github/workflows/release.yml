@@ -64,6 +64,9 @@ jobs:
           Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
         shell: pwsh
 
+      - name: Grant permissions to dist directory
+        run: icacls .\dist /grant Everyone:(F) /T
+
       - name: Run NSIS to build installer
         run: |
           .\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
