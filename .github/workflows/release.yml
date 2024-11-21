@@ -74,10 +74,6 @@ jobs:
             Remove-Item -Force "dist/FreeScribeInstaller.exe"
           }
 
-      - name: Prepare output directory
-        run: |
-          mkdir -p dist
-
       - name: Run NSIS to build installer
         run: |
           .\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
