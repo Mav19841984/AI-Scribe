@@ -59,7 +59,7 @@ jobs:
 
       - name: Verify NSIS Installation
         run: |
-          dir C:\nsis\bin
+          dir C:\
           echo "Creating Plugins folder"
           dir C:\nsis\
         shell: pwsh
