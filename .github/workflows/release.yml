@@ -53,7 +53,7 @@ jobs:
 
       - name: Copy Plugins to NSIS Folder
         run: |
-          Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
+          Copy-Item -Path .\scripts\nsis-plugins\* -Destination .\scripts\nsis\nsis-binary-7423-2\Plugins -Recurse -Force
         shell: pwsh
 
       - name: Prepare output directory
