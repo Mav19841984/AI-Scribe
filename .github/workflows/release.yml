@@ -64,10 +64,10 @@ jobs:
           dir C:\nsis\
         shell: pwsh
 
-      - name: Copy Plugins to NSIS Folder
-        run: |
-          Copy-Item -Path .\scripts\nsis-plugins\* -Destination C:\nsis\Plugins -Recurse -Force
-        shell: pwsh
+      # - name: Copy Plugins to NSIS Folder
+      #   run: |
+      #     Copy-Item -Path .\scripts\nsis-plugins\* -Destination C:\nsis\Plugins -Recurse -Force
+      #   shell: pwsh
 
       - name: Run NSIS to build installer
         run: |
