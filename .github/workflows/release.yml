@@ -49,20 +49,23 @@ jobs:
       - name: Download and Set up NSIS
         run: |
           curl -L https://sourceforge.net/projects/nsisbi/files/nsisbi3.10.2/nsis-binary-7423-2.zip/download -o nsis.zip
-          tar -xf nsis.zip -C C:\
+          Expand-Archive -Path nsis.zip -DestinationPath C:\nsis -Force
+        shell: pwsh
 
       - name: Add NSIS to PATH
         run: |
           echo "C:\nsis\bin" >> $env:GITHUB_PATH
         shell: pwsh
 
+      - name: Verify NSIS Installation
+        run: |
+          dir C:\nsis\bin
+          echo "Creating Plugins folder"
+          dir C:\nsis\
+        shell: pwsh
+
       - name: Copy Plugins to NSIS Folder
         run: |
-          ls .\scripts\nsis-plugins
-          echo "Copying plugins to NSIS folder"
-          ls C:\nsis\bin
-          echo "Creating Plugins folder"
-          C:\nsis\bin\Plugins
           Copy-Item -Path .\scripts\nsis-plugins\* -Destination C:\nsis\Plugins -Recurse -Force
         shell: pwsh
 
