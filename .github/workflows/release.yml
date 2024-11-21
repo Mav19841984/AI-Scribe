@@ -70,7 +70,9 @@ jobs:
 
       - name: Clean previous installer
         run: |
-          if exist dist\FreeScribeInstaller.exe del dist\FreeScribeInstaller.exe
+          if (Test-Path "dist/FreeScribeInstaller.exe") {
+            Remove-Item -Force "dist/FreeScribeInstaller.exe"
+          }
 
       - name: Prepare output directory
         run: |
