@@ -55,6 +55,7 @@ sympy==1.13.3
 textblob==0.15.3
 threadpoolctl==3.5.0
 tiktoken==0.7.0
+--index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.org/simple
 torch==2.2.2
 tqdm==4.66.5
 typing_extensions==4.12.2
