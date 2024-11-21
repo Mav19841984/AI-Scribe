@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>FreeScribe Installer</title>
+    <license file="License.rtf" />
+    <options customize="never"/>
+    <choices-outline>
+        <line choice="install"/>
+    </choices-outline>
+    <choice id="install" visible="true" title="Install" description="Installing freescribe client">
+        <pkg-ref id="com.prosc.RemoteExecution.install.pkg">#installer.pkg</pkg-ref>
+    </choice>
+</installer-gui-script>

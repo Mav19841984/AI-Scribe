@@ -11,6 +11,7 @@ and Research Students - Software Developer Alex Simko, Pemba Sherpa (F24), and N
 
 """
 
+import os
 import tkinter as tk
 from tkinter import scrolledtext, ttk, filedialog
 import requests
@@ -23,25 +24,19 @@ import json
 import pyaudio
 import tkinter.messagebox as messagebox
 import datetime
-import functools
-import os
 import whisper # python package is named openai-whisper
-from openai import OpenAI
 import scrubadub
 import re
 import speech_recognition as sr # python package is named speechrecognition
 import time
 import queue
-from ContainerManager import ContainerManager
 import atexit
-import asyncio
-from UI.MainWindow import MainWindow
 from UI.MainWindowUI import MainWindowUI
-from UI.SettingsWindowUI import SettingsWindowUI
 from UI.SettingsWindow import SettingsWindow
 from UI.Widgets.CustomTextBox import CustomTextBox
 from UI.LoadingWindow import LoadingWindow
-from Model import Model, ModelManager
+from Model import  ModelManager
+from utils.ip_utils import is_private_ip
 from utils.file_utils import get_file_path, get_resource_path
 
 # GUI Setup
@@ -82,6 +77,13 @@ CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000
+
+# Application flags
+is_audio_processing_realtime_canceled = False
+is_audio_processing_whole_canceled = False
+
+# Constants
+DEFAULT_BUTTON_COLOUR = "SystemButtonFace"
 
 
 def get_prompt(formatted_message):
@@ -132,22 +134,20 @@ def threaded_send_audio_to_server():
     return thread
 
 
-DEFAULT_PAUSE_BUTTON_COLOUR = None
 def toggle_pause():
-    global is_paused, DEFAULT_PAUSE_BUTTON_COLOUR
+    global is_paused
     is_paused = not is_paused
 
     if is_paused:
-        DEFAULT_PAUSE_BUTTON_COLOUR = pause_button.cget('background')
         if current_view == "full":
             pause_button.config(text="Resume", bg="red")
         elif current_view == "minimal":
             pause_button.config(text="▶️", bg="red")
     else:
         if current_view == "full":
-            pause_button.config(text="Pause", bg=DEFAULT_PAUSE_BUTTON_COLOUR)
+            pause_button.config(text="Pause", bg=DEFAULT_BUTTON_COLOUR)
         elif current_view == "minimal":
-            pause_button.config(text="⏸️", bg=DEFAULT_PAUSE_BUTTON_COLOUR)
+            pause_button.config(text="⏸️", bg=DEFAULT_BUTTON_COLOUR)
     
 
 def record_audio():
@@ -197,7 +197,7 @@ def is_silent(data, threshold=0.01):
     return max_value < threshold
 
 def realtime_text():
-    global frames, is_realtimeactive, audio_queue
+    global frames, is_realtimeactive, audio_queue, is_audio_processing_realtime_canceled
     if not is_realtimeactive:
         is_realtimeactive = True
         model = None
@@ -209,8 +209,16 @@ def realtime_text():
                 messagebox.showerror("Model Error", f"Error loading model: {e}")
                 
         while True:
+            #  break if canceled
+            if is_audio_processing_realtime_canceled:
+                #reset the cancel state
+                is_audio_processing_realtime_canceled = False
+                break
+
             audio_data = audio_queue.get()
             if audio_data is None:
+                #reset flag here cause we are done
+                is_audio_processing_realtime_canceled = False
                 break
             if app_settings.editable_settings["Real Time"] == True:
                 print("Real Time Audio to Text")
@@ -219,7 +227,8 @@ def realtime_text():
                     if app_settings.editable_settings["Local Whisper"] == True:
                         print("Local Real Time Whisper")
                         result = model.transcribe(audio_buffer, fp16=False)
-                        update_gui(result['text'])
+                        if not is_audio_processing_realtime_canceled:
+                            update_gui(result['text'])
                     else:
                         print("Remote Real Time Whisper")
                         if frames:
@@ -242,7 +251,8 @@ def realtime_text():
                                 response = requests.post(app_settings.editable_settings["Whisper Endpoint"], headers=headers,files=files, verify=verify)
                                 if response.status_code == 200:
                                     text = response.json()['text']
-                                    update_gui(text)
+                                    if not is_audio_processing_realtime_canceled:
+                                        update_gui(text)
                                 else:
                                     update_gui(f"Error (HTTP Status {response.status_code}): {response.text}")
                             except Exception as e:
@@ -261,7 +271,7 @@ def update_gui(text):
     user_input.scrolled_text.see(tk.END)
 
 def save_audio():
-    global frames
+    global frames, is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
     if frames:
         with wave.open(get_resource_path("recording.wav"), 'wb') as wf:
             wf.setnchannels(CHANNELS)
@@ -269,15 +279,22 @@ def save_audio():
             wf.setframerate(RATE)
             wf.writeframes(b''.join(frames))
         frames = []  # Clear recorded data
-        if app_settings.editable_settings["Real Time"] == True:
-            send_and_receive()
-        else:
-            threaded_send_audio_to_server()
 
-DEFAULT_BUTTON_COLOUR= None
+        if app_settings.editable_settings["Real Time"] == True and is_audio_processing_realtime_canceled is False:
+            send_and_receive()
+        elif app_settings.editable_settings["Real Time"] == False and is_audio_processing_whole_canceled is False:
+            threaded_send_audio_to_server()
+        
+        if app_settings.editable_settings["Real Time"] == False and is_audio_processing_whole_canceled:
+            is_audio_processing_whole_canceled = False
 
 def toggle_recording():
-    global is_recording, recording_thread, DEFAULT_BUTTON_COLOUR, realtime_thread, audio_queue, current_view
+    global is_recording, recording_thread, DEFAULT_BUTTON_COLOUR, realtime_thread, audio_queue, current_view, is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
+
+    # Reset the cancel flags going into a fresh recording
+    if not is_recording:
+        is_audio_processing_realtime_canceled = False
+        is_audio_processing_whole_canceled = False
 
     realtime_thread = threaded_realtime_text()
 
@@ -295,7 +312,6 @@ def toggle_recording():
         recording_thread = threading.Thread(target=record_audio)
         recording_thread.start()
 
-        DEFAULT_BUTTON_COLOUR= mic_button.cget('background')
 
         if current_view == "full":
             mic_button.config(bg="red", text="Stop\nRecording")
@@ -309,14 +325,21 @@ def toggle_recording():
             recording_thread.join()  # Ensure the recording thread is terminated
 
         if app_settings.editable_settings["Real Time"]:
-            loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.")
+
+            loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=cancel_processing)
 
             timeout_timer = 0
             while audio_queue.empty() is False and timeout_timer < 180:
+                # break because cancel was requested
+                if is_audio_processing_realtime_canceled:
+                    break
+                
                 timeout_timer += 0.1
                 time.sleep(0.1)
             
             loading_window.destroy()
+
+            realtime_thread.join()
 
         save_audio()
 
@@ -325,12 +348,64 @@ def toggle_recording():
         elif current_view == "minimal":
             mic_button.config(bg=DEFAULT_BUTTON_COLOUR, text="🎤")
 
+        if is_audio_processing_realtime_canceled:
+            #empty the queue
+            while not audio_queue.empty():
+                audio_queue.get()
+                audio_queue.task_done()
+
+def cancel_processing():
+    """Cancels any ongoing audio processing.
+    
+    Sets the global flag to stop audio processing operations.
+    """
+    global is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
+
+    print("Processing canceled.")
+
+    if app_settings.editable_settings["Real Time"]:
+        is_audio_processing_realtime_canceled = True  # Flag to terminate processing
+    else:
+        is_audio_processing_whole_canceled = True  # Flag to terminate processing
+
+def clear_application_press():
+    """Resets the application state by clearing text fields and recording status."""
+    reset_recording_status()  # Reset recording-related variables
+    clear_all_text_fields()  # Clear UI text areas
+
+def reset_recording_status():
+    """Resets all recording-related variables and stops any active recording.
+    
+    Handles cleanup of recording state by:
+        - Checking if recording is active
+        - Canceling any processing
+        - Stopping the recording thread
+    """
+    global is_recording, frames, audio_queue
+    if is_recording:  # Only reset if currently recording
+        cancel_processing()  # Stop any ongoing processing
+        threaded_toggle_recording()  # Stop the recording thread
+
 def clear_all_text_fields():
+    """Clears and resets all text fields in the application UI.
+    
+    Performs the following:
+        - Clears user input field
+        - Resets focus
+        - Stops any flashing effects
+        - Resets response display with default text
+    """
+    # Enable and clear user input field
     user_input.scrolled_text.configure(state='normal')
     user_input.scrolled_text.delete("1.0", tk.END)
+    
+    # Reset focus to main window
     user_input.scrolled_text.focus_set()
     root.focus_set()
-    stop_flashing()
+    
+    stop_flashing()  # Stop any UI flashing effects
+    
+    # Reset response display with default text
     response_display.scrolled_text.configure(state='normal')
     response_display.scrolled_text.delete("1.0", tk.END)
     response_display.scrolled_text.insert(tk.END, "Medical Note")
@@ -370,9 +445,9 @@ def send_audio_to_server():
         If there is an issue with the HTTP request to the remote server.
     """
 
-    global uploaded_file_path
+    global uploaded_file_path, is_audio_processing_whole_canceled
 
-    loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.")
+    loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=cancel_processing)
 
     # Check if Local Whisper is enabled in the editable settings
     if app_settings.editable_settings["Local Whisper"] == True:
@@ -402,13 +477,15 @@ def send_audio_to_server():
             if os.path.exists(file_to_send) and delete_file is True:
                 os.remove(file_to_send)
 
-            # Update the user input widget with the transcribed text
-            user_input.scrolled_text.configure(state='normal')
-            user_input.scrolled_text.delete("1.0", tk.END)
-            user_input.scrolled_text.insert(tk.END, transcribed_text)
+            #check if canceled, if so do not update the UI
+            if not is_audio_processing_whole_canceled:
+                # Update the user input widget with the transcribed text
+                user_input.scrolled_text.configure(state='normal')
+                user_input.scrolled_text.delete("1.0", tk.END)
+                user_input.scrolled_text.insert(tk.END, transcribed_text)
 
-            # Send the transcribed text and receive a response
-            send_and_receive()
+                # Send the transcribed text and receive a response
+                send_and_receive()
         except Exception as e:
             # Log the error message
             # TODO: Add system eventlogger
@@ -455,8 +532,10 @@ def send_audio_to_server():
                 # Send the request without verifying the SSL certificate
                 response = requests.post(app_settings.editable_settings["Whisper Endpoint"], headers=headers, files=files, verify=verify)
 
-                # On successful response (status code 200)
-                if response.status_code == 200:
+                response.raise_for_status()
+
+                # check if canceled, if so do not update the UI
+                if not is_audio_processing_whole_canceled:
                     # Update the UI with the transcribed text
                     transcribed_text = response.json()['text']
                     user_input.scrolled_text.configure(state='normal')
@@ -465,14 +544,6 @@ def send_audio_to_server():
 
                     # Send the transcribed text and receive a response
                     send_and_receive()
-                else:
-                    # Display an error message to the user
-                    user_input.scrolled_text.configure(state='normal')
-                    user_input.scrolled_text.delete("1.0", tk.END)
-                    user_input.scrolled_text.insert(tk.END, f"An error occurred (HTTP Status {response.status_code}): {response.text}")
-                    user_input.scrolled_text.configure(state='disabled')
-
-
             except Exception as e:
                 # log error message
                 #TODO: Implment proper logging to system
@@ -488,6 +559,10 @@ def send_audio_to_server():
                 if os.path.exists(file_to_send):
                     os.remove(file_to_send)
                 loading_window.destroy()
+
+    if is_audio_processing_whole_canceled:
+        # reset the state of the flag
+        is_audio_processing_whole_canceled = False
 
 def send_and_receive():
     global use_aiscribe, user_message
@@ -684,39 +759,29 @@ def generate_note(formatted_message):
                 display_text(f"An error occurred: {e}")
                 return False
 
-
 def show_edit_transcription_popup(formatted_message):
-    popup = tk.Toplevel(root)
-    popup.title("Scrub PHI Prior to GPT")
-    popup.iconbitmap(get_file_path('assets','logo.ico'))
-    text_area = scrolledtext.ScrolledText(popup, height=20, width=80)
-    text_area.pack(padx=10, pady=10)
-
     scrubber = scrubadub.Scrubber()
 
     scrubbed_message = scrubadub.clean(formatted_message)
 
     pattern = r'\b\d{10}\b'     # Any 10 digit number, looks like OHIP
     cleaned_message = re.sub(pattern,'{{OHIP}}',scrubbed_message)
+
+    if (app_settings.editable_settings["Use Local LLM"] or is_private_ip(app_settings.editable_settings["Model Endpoint"])) and not app_settings.editable_settings["Show Scrub PHI"]:
+        generate_note_thread(cleaned_message)
+        return
+    
+    popup = tk.Toplevel(root)
+    popup.title("Scrub PHI Prior to GPT")
+    popup.iconbitmap(get_file_path('assets','logo.ico'))
+    text_area = scrolledtext.ScrolledText(popup, height=20, width=80)
+    text_area.pack(padx=10, pady=10)
     text_area.insert(tk.END, cleaned_message)
 
     def on_proceed():
-
-        loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.")
-        global use_aiscribe
         edited_text = text_area.get("1.0", tk.END).strip()
         popup.destroy()
-        
-        thread = threading.Thread(target=generate_note, args=(edited_text,))
-        thread.start()
-
-        def check_thread_status(thread, loading_window):
-            if thread.is_alive():
-                root.after(500, lambda: check_thread_status(thread, loading_window))
-            else:
-                loading_window.destroy()
-
-        root.after(500, lambda: check_thread_status(thread, loading_window))
+        generate_note_thread(edited_text)        
 
     proceed_button = tk.Button(popup, text="Proceed", command=on_proceed)
     proceed_button.pack(side=tk.RIGHT, padx=10, pady=10)
@@ -725,6 +790,24 @@ def show_edit_transcription_popup(formatted_message):
     cancel_button = tk.Button(popup, text="Cancel", command=popup.destroy)
     cancel_button.pack(side=tk.LEFT, padx=10, pady=10)
 
+def generate_note_thread(text: str):
+    """
+    Generate a note from the given text and update the GUI with the response.
+
+    :param text: The text to generate a note from.
+    :type text: str
+    """
+    loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.")
+    thread = threading.Thread(target=generate_note, args=(text,))
+    thread.start()
+
+    def check_thread_status(thread, loading_window):
+        if thread.is_alive():
+            root.after(500, lambda: check_thread_status(thread, loading_window))
+        else:
+            loading_window.destroy()
+
+    root.after(500, lambda: check_thread_status(thread, loading_window))
 
 def upload_file():
     global uploaded_file_path
@@ -806,10 +889,10 @@ def set_full_view():
     upload_button.grid()
     response_display.grid()
     timestamp_listbox.grid()
-    mic_button.grid(row=1, column=1, pady=5, sticky='nsew')
-    pause_button.grid(row=1, column=2, pady=5, sticky='nsew')
-    switch_view_button.grid(row=1, column=7, pady=5, sticky='nsew')
-    blinking_circle_canvas.grid(row=1, column=8, pady=5)
+    mic_button.grid(row=1, column=1, pady=5, padx=0,sticky='nsew')
+    pause_button.grid(row=1, column=2, pady=5, padx=0,sticky='nsew')
+    switch_view_button.grid(row=1, column=7, pady=5, padx=0,sticky='nsew')
+    blinking_circle_canvas.grid(row=1, column=8, padx=0,pady=5)
 
     # Reconfigure button styles and text
     mic_button.config(bg="red" if is_recording else DEFAULT_BUTTON_COLOUR,
@@ -824,7 +907,14 @@ def set_full_view():
     root.attributes('-topmost', False)
     root.minsize(900, 400)
     current_view = "full"
-    window.create_docker_status_bar()
+
+    # create docker_status bar if enabled
+    if app_settings.editable_settings["Use Docker Status Bar"]:
+        window.create_docker_status_bar()
+
+    if app_settings.editable_settings["Enable Scribe Template"]:
+        window.destroy_scribe_template()
+        window.create_scribe_template()
 
     # Save minimal view geometry and restore last full view geometry
     last_minimal_position = root.geometry()
@@ -835,6 +925,7 @@ def set_full_view():
 
 
 def set_minimal_view():
+
     """
     Configures the application to display the minimal view interface.
 
@@ -965,7 +1056,7 @@ send_button.grid(row=1, column=3, pady=5, sticky='nsew')
 pause_button = tk.Button(root, text="Pause", command=toggle_pause, height=2, width=11)
 pause_button.grid(row=1, column=2, pady=5, sticky='nsew')
 
-clear_button = tk.Button(root, text="Clear", command=clear_all_text_fields, height=2, width=11)
+clear_button = tk.Button(root, text="Clear", command=clear_application_press, height=2, width=11)
 clear_button.grid(row=1, column=4, pady=5, sticky='nsew')
 
 toggle_button = tk.Button(root, text="AI Scribe\nON", command=toggle_aiscribe, height=2, width=11)

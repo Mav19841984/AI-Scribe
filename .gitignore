@@ -10,6 +10,7 @@ recording.wav
 output
 client.spec
 .aider*
+.DS_Store
 
 realtime.wav
 src/FreeScribe.client/models

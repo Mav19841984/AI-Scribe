@@ -149,7 +149,9 @@ class MainWindowUI:
 
     def _create_settings_menu(self):
         # Add Settings menu
-        self.menu_bar.add_command(label="Settings", command=self.setting_window.open_settings_window)
+        setting_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="Settings", menu=setting_menu)
+        setting_menu.add_command(label="Settings", command=self.setting_window.open_settings_window)
 
     def _create_help_menu(self):
         # Add Help menu

@@ -133,5 +133,9 @@ class LoadingWindow:
             # Enable the parent window
             if self.parent:
                 self.parent.wm_attributes('-disabled', False)
-            self.progress.stop()
-            self.popup.destroy()
+            
+            if self.progress.winfo_exists():
+                self.progress.stop()
+
+            if self.popup.winfo_exists():
+                self.popup.destroy()
