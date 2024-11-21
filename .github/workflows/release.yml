@@ -68,6 +68,14 @@ jobs:
         shell: cmd
         run: icacls .\dist /grant Everyone:(F) /T
 
+      - name: Clean previous installer
+        run: |
+          if exist dist\FreeScribeInstaller.exe del dist\FreeScribeInstaller.exe
+
+      - name: Prepare output directory
+        run: |
+          mkdir -p dist
+
       - name: Run NSIS to build installer
         run: |
           .\nsis\nsis-binary-7423-2\makensis.exe .\scripts\install.nsi
