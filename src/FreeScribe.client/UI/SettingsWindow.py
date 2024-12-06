@@ -23,13 +23,22 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
 import numpy as np
-import pyaudio
-from utils.file_utils import get_resource_path
+from utils.file_utils import get_resource_path, get_file_path
 from Model import ModelManager
 import threading
+from UI.Widgets.MicrophoneSelector import MicrophoneState
+from utils.ip_utils import is_valid_url
+from enum import Enum
+
+class SettingsKeys(Enum):
+    LOCAL_WHISPER = "Built-in Speech2Text"
+    WHISPER_ENDPOINT = "Speech2Text (Whisper) Endpoint"
+    WHISPER_SERVER_API_KEY = "Speech2Text (Whisper) API Key"
 
 
-p = pyaudio.PyAudio()
+class FeatureToggle:
+    DOCKER_SETTINGS_TAB = False
+    DOCKER_STATUS_BAR = False
 
 class SettingsWindow():
     """
@@ -43,8 +52,8 @@ class SettingsWindow():
         Placeholder for the first AI Scribe settings.
     AISCRIBE2 : str
         Placeholder for the second AI Scribe settings.
-    API_STYLE : str
-        The API style to be used (default is 'OpenAI').
+    # API_STYLE : str FUTURE FEATURE REVISION
+    #     The API style to be used (default is 'OpenAI'). FUTURE FEATURE
 
     editable_settings : dict
         A dictionary containing user-editable settings such as model parameters, audio 
@@ -57,7 +66,7 @@ class SettingsWindow():
     save_settings_to_file():
         Saves the current settings to a JSON file.
     save_settings(openai_api_key, aiscribe_text, aiscribe2_text, 
-                  settings_window, api_style, preset):
+                  settings_window, preset):
         Saves the current settings, including API keys, IP addresses, and user-defined parameters.
     load_aiscribe_from_file():
         Loads the first AI Scribe text from a file.
@@ -67,12 +76,16 @@ class SettingsWindow():
         Clears the content of settings files and closes the settings window.
     """
 
+    CPU_INSTALL_FILE = "CPU_INSTALL.txt"
+    NVIDIA_INSTALL_FILE = "NVIDIA_INSTALL.txt"
+    STATE_FILES_DIR = "install_state"
+
     def __init__(self):
         """Initializes the ApplicationSettings with default values."""
 
 
         self.OPENAI_API_KEY = "None"
-        self.API_STYLE = "OpenAI"
+        # self.API_STYLE = "OpenAI" # FUTURE FEATURE REVISION
         self.main_window = None
         self.scribe_template_values = []
         self.scribe_template_mapping = {}
@@ -84,15 +97,16 @@ class SettingsWindow():
         ]
 
         self.whisper_settings = [
-            "Whisper Endpoint",
-            "Whisper Server API Key",
-            "Local Whisper",
+            "BlankSpace", # Represents the SettingsKeys.LOCAL_WHISPER.value checkbox that is manually placed
             "Real Time",
+            "BlankSpace", # Represents the model dropdown that is manually placed
+            SettingsKeys.WHISPER_ENDPOINT.value,
+            SettingsKeys.WHISPER_SERVER_API_KEY.value,
             "S2T Server Self-Signed Certificates",
         ]
+
         self.llm_settings = [
             "Model Endpoint",
-            "Use Local LLM",
             "AI Server Self-Signed Certificates",
         ]
 
@@ -155,10 +169,11 @@ class SettingsWindow():
             "frmtrmblln": False,
             "best_of": 2,
             "Use best_of": False,
-            "Local Whisper": True,
-            "Whisper Endpoint": "https://localhost:2224/whisperaudio",
-            "Whisper Server API Key": "None",
+            SettingsKeys.LOCAL_WHISPER.value: True,
+            SettingsKeys.WHISPER_ENDPOINT.value: "https://localhost:2224/whisperaudio",
+            SettingsKeys.WHISPER_SERVER_API_KEY.value: "",
             "Whisper Model": "small.en",
+            "Current Mic": "None",
             "Real Time": True,
             "Real Time Audio Length": 5,
             "Real Time Silence Length": 1,
@@ -200,6 +215,8 @@ class SettingsWindow():
 
         self.get_dropdown_values_and_mapping()
         self._create_settings_and_aiscribe_if_not_exist()
+
+        MicrophoneState.load_microphone_from_settings(self)
 
     def get_dropdown_values_and_mapping(self):
         """
@@ -247,10 +264,10 @@ class SettingsWindow():
                     settings = json.load(file)
                 except json.JSONDecodeError:
                     print("Error loading settings file. Using default settings.")
-                    return self.OPENAI_API_KEY, self.API_STYLE
+                    return self.OPENAI_API_KEY
 
                 self.OPENAI_API_KEY = settings.get("openai_api_key", self.OPENAI_API_KEY)
-                self.API_STYLE = settings.get("api_style", self.API_STYLE)
+                # self.API_STYLE = settings.get("api_style", self.API_STYLE) # FUTURE FEATURE REVISION
                 loaded_editable_settings = settings.get("editable_settings", {})
                 for key, value in loaded_editable_settings.items():
                     if key in self.editable_settings:
@@ -263,10 +280,10 @@ class SettingsWindow():
                     self.main_window.create_scribe_template()
 
 
-                return self.OPENAI_API_KEY, self.API_STYLE
+                return self.OPENAI_API_KEY
         except FileNotFoundError:
             print("Settings file not found. Using default settings.")
-            return self.OPENAI_API_KEY, self.API_STYLE
+            return self.OPENAI_API_KEY
 
     def save_settings_to_file(self):
         """
@@ -280,14 +297,14 @@ class SettingsWindow():
         """
         settings = {
             "openai_api_key": self.OPENAI_API_KEY,
-            "editable_settings": self.editable_settings,
-            "api_style": self.API_STYLE
+            "editable_settings": self.editable_settings
+            # "api_style": self.API_STYLE # FUTURE FEATURE REVISION
         }
         with open(get_resource_path('settings.txt'), 'w') as file:
             json.dump(settings, file)
 
     def save_settings(self, openai_api_key, aiscribe_text, aiscribe2_text, settings_window,
-                      api_style, silence_cutoff):
+                      silence_cutoff):
         """
         Save the current settings, including IP addresses, API keys, and user-defined parameters.
 
@@ -298,10 +315,9 @@ class SettingsWindow():
         :param str aiscribe_text: The text for the first AI Scribe.
         :param str aiscribe2_text: The text for the second AI Scribe.
         :param tk.Toplevel settings_window: The settings window instance to be destroyed after saving.
-        :param str api_style: The style of API being used.
         """
         self.OPENAI_API_KEY = openai_api_key
-        self.API_STYLE = api_style
+        # self.API_STYLE = api_style
 
         self.editable_settings["Silence cut-off"] = silence_cutoff
 
@@ -381,7 +397,7 @@ class SettingsWindow():
             # Print any exception that occurs during file handling or window destruction.
             print(f"Error clearing settings files: {e}")
 
-    def get_available_models(self):
+    def get_available_models(self,endpoint=None):
         """
         Returns a list of available models for the user to choose from.
 
@@ -398,11 +414,22 @@ class SettingsWindow():
             "X-API-Key": self.OPENAI_API_KEY
         }
 
+        endpoint = endpoint or self.editable_settings_entries["Model Endpoint"].get()
+
+        # url validate the endpoint
+        if not is_valid_url(endpoint):
+            print("Invalid LLM Endpoint")
+            return ["Invalid LLM Endpoint", "Custom"]
+
         try:
             verify = not self.editable_settings["AI Server Self-Signed Certificates"]
-            response = requests.get(self.editable_settings["Model Endpoint"] + "/models", headers=headers, timeout=2.0, verify=verify)
+            response = requests.get(endpoint + "/models", headers=headers, timeout=1.0, verify=verify)
             response.raise_for_status()  # Raise an error for bad responses
             models = response.json().get("data", [])  # Extract the 'data' field
+            
+            if not models:
+                return ["No models available", "Custom"]
+
             available_models = [model["id"] for model in models]
             available_models.append("Custom")
             return available_models
@@ -411,20 +438,20 @@ class SettingsWindow():
             print(e)
             return ["Failed to load models", "Custom"]
 
-    def update_models_dropdown(self, dropdown):
+    def update_models_dropdown(self, dropdown, endpoint=None):
         """
         Updates the models dropdown with the available models.
 
         This method fetches the available models from the AI Scribe service and updates
         the dropdown widget in the settings window with the new list of models.
         """
-        if self.editable_settings["Use Local LLM"]:
+        if self.editable_settings_entries["Use Local LLM"].get():
             dropdown["values"] = ["gemma-2-2b-it-Q8_0.gguf"]
             dropdown.set("gemma-2-2b-it-Q8_0.gguf")
         else:
-            dropdown["values"] = []
+            dropdown["values"] = ["Loading models...", "Custom"]
             dropdown.set("Loading models...")
-            models = self.get_available_models()
+            models = self.get_available_models(endpoint=endpoint)
             dropdown["values"] = models
             if self.editable_settings["Model"] in models:
                 dropdown.set(self.editable_settings["Model"])
@@ -450,11 +477,23 @@ class SettingsWindow():
         if preset_name != "Custom":
             # load the settigns from the json preset file
             self.load_settings_from_file("presets/" + preset_name + ".json")
-            messagebox.showinfo("Settings Preset", "Settings preset loaded successfully. Closing settings window. Please re-open and set respective API keys.")
-            
+
             self.editable_settings["Preset"] = preset_name
-            settings_class.settings_window.destroy()
+            #close the settings window 
+            settings_class.close_window()
+
+            # save the settings to the file
             self.save_settings_to_file()
+
+            if preset_name != "Local AI":
+                messagebox.showinfo("Settings Preset", "Settings preset loaded successfully. Closing settings window. Please re-open and set respective API keys.")
+
+                # Unload ai model if switching
+                # already has safety check in unload to check if model exist.
+                ModelManager.unload_model()
+            else: # if is local ai
+                # load the models here
+                ModelManager.start_model_threaded(self, self.main_window.root)
         else:
             messagebox.showinfo("Custom Settings", "To use custom settings then please fill in the values and save them.")
 
@@ -500,3 +539,22 @@ class SettingsWindow():
             print("AIScribe2 file not found. Creating default AIScribe2 file.")
             with open(get_resource_path('aiscribe2.txt'), 'w') as f:
                 f.write(self.AISCRIBE2)
+
+    def get_available_architectures(self):
+        """
+        Returns a list of available architectures for the user to choose from.
+
+        Based on the install state files in _internal folder
+
+        Files must be named CPU_INSTALL or NVIDIA_INSTALL
+
+        Returns:
+            list: A list of available architectures for the user to choose from.
+        """
+        architectures = ["CPU"]  # CPU is always available as fallback
+
+        # Check for NVIDIA support
+        if os.path.isfile(get_file_path(self.STATE_FILES_DIR, self.NVIDIA_INSTALL_FILE)):
+            architectures.append("CUDA (Nvidia GPU)")
+
+        return architectures

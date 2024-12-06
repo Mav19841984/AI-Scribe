@@ -19,6 +19,7 @@ from tkinter import ttk
 import pyaudio
 import numpy as np
 from threading import Thread
+from UI.Widgets.MicrophoneSelector import MicrophoneState
 
 class AudioMeter(tk.Frame):
     """
@@ -194,13 +195,19 @@ class AudioMeter(tk.Frame):
         """
         if not self.running:
             self.running = True
-            self.stream = self.p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                frames_per_buffer=self.CHUNK,
-            )
+            
+            try:
+                self.stream = self.p.open(
+                    format=self.FORMAT,
+                    channels=1,
+                    rate=self.RATE,
+                    input=True,
+                    input_device_index=MicrophoneState.SELECTED_MICROPHONE_INDEX,
+                    frames_per_buffer=self.CHUNK,
+                )
+            except (OSError, IOError) as e:
+                tk.messagebox.showerror("Error", f"Please check your microphone settings under the speech2text settings tab. Error opening audio stream: {e}")
+
             self.monitoring_thread = Thread(target=self.update_meter)
             self.monitoring_thread.start()
         else:

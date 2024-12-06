@@ -32,12 +32,23 @@ import time
 import queue
 import atexit
 from UI.MainWindowUI import MainWindowUI
-from UI.SettingsWindow import SettingsWindow
+from UI.SettingsWindow import SettingsWindow, SettingsKeys
 from UI.Widgets.CustomTextBox import CustomTextBox
 from UI.LoadingWindow import LoadingWindow
+from UI.Widgets.MicrophoneSelector import MicrophoneState
 from Model import  ModelManager
 from utils.ip_utils import is_private_ip
 from utils.file_utils import get_file_path, get_resource_path
+import ctypes
+import sys
+from UI.DebugWindow import DualOutput
+import traceback
+
+dual = DualOutput()
+sys.stdout = dual
+sys.stderr = dual
+
+
 
 # GUI Setup
 root = tk.Tk()
@@ -79,11 +90,18 @@ CHANNELS = 1
 RATE = 16000
 
 # Application flags
-is_audio_processing_realtime_canceled = False
-is_audio_processing_whole_canceled = False
+is_audio_processing_realtime_canceled = threading.Event()
+is_audio_processing_whole_canceled = threading.Event()
 
 # Constants
 DEFAULT_BUTTON_COLOUR = "SystemButtonFace"
+
+#Thread tracking variables
+REALTIME_TRANSCRIBE_THREAD_ID = None
+GENERATION_THREAD_ID = None
+
+# Global instance of whisper model
+stt_local_model = None
 
 
 def get_prompt(formatted_message):
@@ -152,7 +170,20 @@ def toggle_pause():
 
 def record_audio():
     global is_paused, frames, audio_queue
-    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK, input_device_index=1)
+
+    try:
+        stream = p.open(
+            format=FORMAT, 
+            channels=1, 
+            rate=RATE, 
+            input=True,
+            frames_per_buffer=CHUNK, 
+            input_device_index=int(MicrophoneState.SELECTED_MICROPHONE_INDEX))
+    except (OSError, IOError) as e:
+        messagebox.showerror("Audio Error", f"Please check your microphone settings under whisper settings. Error opening audio stream: {e}")
+        return
+
+    
     current_chunk = []
     silent_duration = 0
     record_duration = 0
@@ -197,37 +228,35 @@ def is_silent(data, threshold=0.01):
     return max_value < threshold
 
 def realtime_text():
-    global frames, is_realtimeactive, audio_queue, is_audio_processing_realtime_canceled
+    global frames, is_realtimeactive, audio_queue
+    # Incase the user starts a new recording while this one the older thread is finishing.
+    # This is a local flag to prevent the processing of the current audio chunk 
+    # if the global flag is reset on new recording
+    local_cancel_flag = False 
     if not is_realtimeactive:
         is_realtimeactive = True
-        model = None
-        if app_settings.editable_settings["Real Time"]:
-            try:
-                model_name = app_settings.editable_settings["Whisper Model"].strip()
-                model = whisper.load_model(model_name)
-            except Exception as e:
-                messagebox.showerror("Model Error", f"Error loading model: {e}")
-                
+
         while True:
             #  break if canceled
-            if is_audio_processing_realtime_canceled:
-                #reset the cancel state
-                is_audio_processing_realtime_canceled = False
+            if is_audio_processing_realtime_canceled.is_set():
+                local_cancel_flag = True
                 break
 
             audio_data = audio_queue.get()
             if audio_data is None:
-                #reset flag here cause we are done
-                is_audio_processing_realtime_canceled = False
                 break
             if app_settings.editable_settings["Real Time"] == True:
                 print("Real Time Audio to Text")
                 audio_buffer = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768
                 if not is_silent(audio_buffer):
-                    if app_settings.editable_settings["Local Whisper"] == True:
+                    if app_settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value] == True:
                         print("Local Real Time Whisper")
-                        result = model.transcribe(audio_buffer, fp16=False)
-                        if not is_audio_processing_realtime_canceled:
+                        if stt_local_model is None:
+                            update_gui("Local Whisper model not loaded. Please check your settings.")
+                            break
+
+                        result = stt_local_model.transcribe(audio_buffer, fp16=False)
+                        if not local_cancel_flag and not is_audio_processing_realtime_canceled.is_set():
                             update_gui(result['text'])
                     else:
                         print("Remote Real Time Whisper")
@@ -243,15 +272,15 @@ def realtime_text():
                             files = {'audio': f}
 
                             headers = {
-                                "Authorization": "Bearer "+app_settings.editable_settings["Whisper Server API Key"]
+                                "Authorization": "Bearer "+app_settings.editable_settings[SettingsKeys.WHISPER_SERVER_API_KEY.value]
                             }
 
                             try:
                                 verify = not app_settings.editable_settings["S2T Server Self-Signed Certificates"]
-                                response = requests.post(app_settings.editable_settings["Whisper Endpoint"], headers=headers,files=files, verify=verify)
+                                response = requests.post(app_settings.editable_settings[SettingsKeys.WHISPER_ENDPOINT.value], headers=headers,files=files, verify=verify)
                                 if response.status_code == 200:
                                     text = response.json()['text']
-                                    if not is_audio_processing_realtime_canceled:
+                                    if not local_cancel_flag and not is_audio_processing_realtime_canceled.is_set():
                                         update_gui(text)
                                 else:
                                     update_gui(f"Error (HTTP Status {response.status_code}): {response.text}")
@@ -271,7 +300,7 @@ def update_gui(text):
     user_input.scrolled_text.see(tk.END)
 
 def save_audio():
-    global frames, is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
+    global frames
     if frames:
         with wave.open(get_resource_path("recording.wav"), 'wb') as wf:
             wf.setnchannels(CHANNELS)
@@ -280,25 +309,27 @@ def save_audio():
             wf.writeframes(b''.join(frames))
         frames = []  # Clear recorded data
 
-        if app_settings.editable_settings["Real Time"] == True and is_audio_processing_realtime_canceled is False:
+        if app_settings.editable_settings["Real Time"] == True and is_audio_processing_realtime_canceled.is_set() is False:
             send_and_receive()
-        elif app_settings.editable_settings["Real Time"] == False and is_audio_processing_whole_canceled is False:
+        elif app_settings.editable_settings["Real Time"] == False and is_audio_processing_whole_canceled.is_set() is False:
             threaded_send_audio_to_server()
-        
-        if app_settings.editable_settings["Real Time"] == False and is_audio_processing_whole_canceled:
-            is_audio_processing_whole_canceled = False
 
 def toggle_recording():
-    global is_recording, recording_thread, DEFAULT_BUTTON_COLOUR, realtime_thread, audio_queue, current_view, is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
+    global is_recording, recording_thread, DEFAULT_BUTTON_COLOUR, audio_queue, current_view, REALTIME_TRANSCRIBE_THREAD_ID
 
     # Reset the cancel flags going into a fresh recording
     if not is_recording:
-        is_audio_processing_realtime_canceled = False
-        is_audio_processing_whole_canceled = False
+        is_audio_processing_realtime_canceled.clear()
+        is_audio_processing_whole_canceled.clear()
+
+    if is_paused:
+        toggle_pause()
 
     realtime_thread = threaded_realtime_text()
 
     if not is_recording:
+        disable_recording_ui_elements()
+        REALTIME_TRANSCRIBE_THREAD_ID = realtime_thread.ident
         user_input.scrolled_text.configure(state='normal')
         user_input.scrolled_text.delete("1.0", tk.END)
         if not app_settings.editable_settings["Real Time"]:
@@ -320,18 +351,40 @@ def toggle_recording():
         
         start_flashing()
     else:
+        enable_recording_ui_elements()
         is_recording = False
         if recording_thread.is_alive():
             recording_thread.join()  # Ensure the recording thread is terminated
+        
+        if app_settings.editable_settings["Real Time"] and not is_audio_processing_realtime_canceled.is_set():
+            def cancel_realtime_processing(thread_id):
+                """Cancels any ongoing audio processing.
+                
+                Sets the global flag to stop audio processing operations.
+                """
+                global REALTIME_TRANSCRIBE_THREAD_ID
 
-        if app_settings.editable_settings["Real Time"]:
+                try:
+                    kill_thread(thread_id)
+                except Exception as e:
+                    # Log the error message
+                    # TODO System logger
+                    print(f"An error occurred: {e}")
+                finally:
+                    REALTIME_TRANSCRIBE_THREAD_ID = None
 
-            loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=cancel_processing)
+                #empty the queue
+                while not audio_queue.empty():
+                    audio_queue.get()
+                    audio_queue.task_done()
+
+            loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=lambda: (cancel_processing(), cancel_realtime_processing(REALTIME_TRANSCRIBE_THREAD_ID)))
+
 
             timeout_timer = 0
             while audio_queue.empty() is False and timeout_timer < 180:
                 # break because cancel was requested
-                if is_audio_processing_realtime_canceled:
+                if is_audio_processing_realtime_canceled.is_set():
                     break
                 
                 timeout_timer += 0.1
@@ -348,25 +401,35 @@ def toggle_recording():
         elif current_view == "minimal":
             mic_button.config(bg=DEFAULT_BUTTON_COLOUR, text="🎤")
 
-        if is_audio_processing_realtime_canceled:
-            #empty the queue
-            while not audio_queue.empty():
-                audio_queue.get()
-                audio_queue.task_done()
+def disable_recording_ui_elements():
+    window.disable_settings_menu()
+    user_input.scrolled_text.configure(state='disabled')
+    send_button.config(state='disabled')
+    toggle_button.config(state='disabled')
+    upload_button.config(state='disabled')
+    response_display.scrolled_text.configure(state='disabled')
+    timestamp_listbox.config(state='disabled')
+
+def enable_recording_ui_elements():
+    window.enable_settings_menu()
+    user_input.scrolled_text.configure(state='normal')
+    send_button.config(state='normal')
+    toggle_button.config(state='normal')
+    upload_button.config(state='normal')
+    timestamp_listbox.config(state='normal')
+    
 
 def cancel_processing():
     """Cancels any ongoing audio processing.
     
     Sets the global flag to stop audio processing operations.
     """
-    global is_audio_processing_realtime_canceled, is_audio_processing_whole_canceled
-
     print("Processing canceled.")
 
     if app_settings.editable_settings["Real Time"]:
-        is_audio_processing_realtime_canceled = True  # Flag to terminate processing
+        is_audio_processing_realtime_canceled.set() # Flag to terminate processing
     else:
-        is_audio_processing_whole_canceled = True  # Flag to terminate processing
+        is_audio_processing_whole_canceled.set()  # Flag to terminate processing
 
 def clear_application_press():
     """Resets the application state by clearing text fields and recording status."""
@@ -381,10 +444,32 @@ def reset_recording_status():
         - Canceling any processing
         - Stopping the recording thread
     """
-    global is_recording, frames, audio_queue
+    global is_recording, frames, audio_queue, REALTIME_TRANSCRIBE_THREAD_ID, GENERATION_THREAD_ID
     if is_recording:  # Only reset if currently recording
         cancel_processing()  # Stop any ongoing processing
         threaded_toggle_recording()  # Stop the recording thread
+
+    # kill the generation thread if active
+    if REALTIME_TRANSCRIBE_THREAD_ID:
+        # Exit the current realtime thread
+        try:
+            kill_thread(REALTIME_TRANSCRIBE_THREAD_ID)
+        except Exception as e:
+            # Log the error message
+            # TODO System logger
+            print(f"An error occurred: {e}")
+        finally:
+            REALTIME_TRANSCRIBE_THREAD_ID = None
+
+    if GENERATION_THREAD_ID:
+        try:
+            kill_thread(GENERATION_THREAD_ID)
+        except Exception as e:
+            # Log the error message
+            # TODO System logger
+            print(f"An error occurred: {e}")
+        finally:
+            GENERATION_THREAD_ID = None
 
 def clear_all_text_fields():
     """Clears and resets all text fields in the application UI.
@@ -438,21 +523,36 @@ def send_audio_to_server():
     Raises:
     -------
     ValueError
-        If the `app_settings.editable_settings["Local Whisper"]` flag is not a boolean.
+        If the `app_settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value]` flag is not a boolean.
     FileNotFoundError
         If the specified audio file does not exist.
     requests.exceptions.RequestException
         If there is an issue with the HTTP request to the remote server.
     """
 
-    global uploaded_file_path, is_audio_processing_whole_canceled
+    global uploaded_file_path
+    current_thread_id = threading.current_thread().ident
 
-    loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=cancel_processing)
+    def cancel_whole_audio_process(thread_id):
+        global GENERATION_THREAD_ID
+        
+        is_audio_processing_whole_canceled.clear()
 
-    # Check if Local Whisper is enabled in the editable settings
-    if app_settings.editable_settings["Local Whisper"] == True:
-        # Inform the user that Local Whisper is being used for transcription
-        print("Using Local Whisper for transcription.")
+        try:
+            kill_thread(thread_id)
+        except Exception as e:
+            # Log the error message
+            #TODO Logging the message to system logger
+            print(f"An error occurred: {e}")
+        finally:
+            GENERATION_THREAD_ID = None
+
+    loading_window = LoadingWindow(root, "Processing Audio", "Processing Audio. Please wait.", on_cancel=lambda: (cancel_processing(), cancel_whole_audio_process(current_thread_id)))
+
+    # Check if SettingsKeys.LOCAL_WHISPER is enabled in the editable settings
+    if app_settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value] == True:
+        # Inform the user that SettingsKeys.LOCAL_WHISPER.value is being used for transcription
+        print(f"Using {SettingsKeys.LOCAL_WHISPER.value} for transcription.")
         # Configure the user input widget to be editable and clear its content
         user_input.scrolled_text.configure(state='normal')
         user_input.scrolled_text.delete("1.0", tk.END)
@@ -460,17 +560,13 @@ def send_audio_to_server():
         # Display a message indicating that audio to text processing is in progress
         user_input.scrolled_text.insert(tk.END, "Audio to Text Processing...Please Wait")
         try:
-            # Load the specified Whisper model
-            model_name = app_settings.editable_settings["Whisper Model"].strip()
-            model = whisper.load_model(model_name)
-
             # Determine the file to send for transcription
             file_to_send = uploaded_file_path or get_resource_path('recording.wav')
             delete_file = False if uploaded_file_path else True
             uploaded_file_path = None
 
             # Transcribe the audio file using the loaded model
-            result = model.transcribe(file_to_send)
+            result = stt_local_model.transcribe(file_to_send)
             transcribed_text = result["text"]
 
             # done with file clean up
@@ -478,7 +574,7 @@ def send_audio_to_server():
                 os.remove(file_to_send)
 
             #check if canceled, if so do not update the UI
-            if not is_audio_processing_whole_canceled:
+            if not is_audio_processing_whole_canceled.is_set():
                 # Update the user input widget with the transcribed text
                 user_input.scrolled_text.configure(state='normal')
                 user_input.scrolled_text.delete("1.0", tk.END)
@@ -510,6 +606,8 @@ def send_audio_to_server():
         # Display a message indicating that audio to text processing is in progress
         user_input.scrolled_text.insert(tk.END, "Audio to Text Processing...Please Wait")
 
+        delete_file = False if uploaded_file_path else True
+
         # Determine the file to send for transcription
         if uploaded_file_path:
             file_to_send = uploaded_file_path
@@ -523,19 +621,19 @@ def send_audio_to_server():
 
             # Add the Bearer token to the headers for authentication
             headers = {
-                "Authorization": f"Bearer {app_settings.editable_settings['Whisper Server API Key']}"
+                "Authorization": f"Bearer {app_settings.editable_settings[SettingsKeys.WHISPER_SERVER_API_KEY.value]}"
             }
 
             try:
                 verify = not app_settings.editable_settings["S2T Server Self-Signed Certificates"]
 
                 # Send the request without verifying the SSL certificate
-                response = requests.post(app_settings.editable_settings["Whisper Endpoint"], headers=headers, files=files, verify=verify)
+                response = requests.post(app_settings.editable_settings[SettingsKeys.WHISPER_ENDPOINT.value], headers=headers, files=files, verify=verify)
 
                 response.raise_for_status()
 
                 # check if canceled, if so do not update the UI
-                if not is_audio_processing_whole_canceled:
+                if not is_audio_processing_whole_canceled.is_set():
                     # Update the UI with the transcribed text
                     transcribed_text = response.json()['text']
                     user_input.scrolled_text.configure(state='normal')
@@ -556,13 +654,39 @@ def send_audio_to_server():
             finally:
                 # done with file clean up
                 f.close()
-                if os.path.exists(file_to_send):
+                if os.path.exists(file_to_send) and delete_file:
                     os.remove(file_to_send)
                 loading_window.destroy()
 
-    if is_audio_processing_whole_canceled:
-        # reset the state of the flag
-        is_audio_processing_whole_canceled = False
+def kill_thread(thread_id):
+    """
+    Terminate a thread with a given thread ID.
+
+    This function forcibly terminates a thread by raising a `SystemExit` exception in its context.
+    **Use with caution**, as this method is not safe and can lead to unpredictable behavior, 
+    including corruption of shared resources or deadlocks.
+
+    :param thread_id: The ID of the thread to terminate.
+    :type thread_id: int
+    :raises ValueError: If the thread ID is invalid.
+    :raises SystemError: If the operation fails due to an unexpected state.
+    """
+    # Call the C function `PyThreadState_SetAsyncExc` to asynchronously raise
+    # an exception in the target thread's context.
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_long(thread_id),  # The thread ID to target (converted to `long`).
+        ctypes.py_object(SystemExit)  # The exception to raise in the thread.
+    )
+
+    # Check the result of the function call.
+    if res == 0:
+        # If 0 is returned, the thread ID is invalid.
+        raise ValueError(f"Invalid thread ID: {thread_id}")
+    elif res > 1:
+        # If more than one thread was affected, something went wrong.
+        # Reset the state to prevent corrupting other threads.
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, None)
+        raise SystemError("PyThreadState_SetAsyncExc failed")
 
 def send_and_receive():
     global use_aiscribe, user_message
@@ -669,25 +793,34 @@ def send_text_to_api(edited_text):
         if app_settings.editable_settings["Model Endpoint"].endswith('/'):
             app_settings.editable_settings["Model Endpoint"] = app_settings.editable_settings["Model Endpoint"][:-1]
 
-        if app_settings.API_STYLE == "OpenAI":
-            verify = not app_settings.editable_settings["AI Server Self-Signed Certificates"]
-            response = requests.post(app_settings.editable_settings["Model Endpoint"]+"/chat/completions", headers=headers, json=payload, verify=verify)
+        # Open API Style
+        verify = not app_settings.editable_settings["AI Server Self-Signed Certificates"]
+        response = requests.post(app_settings.editable_settings["Model Endpoint"]+"/chat/completions", headers=headers, json=payload, verify=verify)
 
-            response.raise_for_status()
-            response_data = response.json()
-            response_text = (response_data['choices'][0]['message']['content'])
-            return response_text
-        elif app_settings.API_STYLE == "KoboldCpp":
-            prompt = get_prompt(edited_text)
+        response.raise_for_status()
+        response_data = response.json()
+        response_text = (response_data['choices'][0]['message']['content'])
+        return response_text
 
-            verify = not app_settings.editable_settings["AI Server Self-Signed Certificates"]
-            response = requests.post(app_settings.editable_settings["Model Endpoint"] + "/api/v1/generate", json=prompt, verify=verify)
+        #############################################################
+        #                                                           #
+        #                   OpenAI API Style                        #
+        #           Uncomment to use API Style Selector             #
+        #                                                           #
+        #############################################################
+        
+        # if app_settings.API_STYLE == "OpenAI":                    
+        # elif app_settings.API_STYLE == "KoboldCpp":
+        #     prompt = get_prompt(edited_text)
 
-            if response.status_code == 200:
-                results = response.json()['results']
-                response_text = results[0]['text']
-                response_text = response_text.replace("  ", " ").strip()
-                return response_text
+        #     verify = not app_settings.editable_settings["AI Server Self-Signed Certificates"]
+        #     response = requests.post(app_settings.editable_settings["Model Endpoint"] + "/api/v1/generate", json=prompt, verify=verify)
+
+        #     if response.status_code == 200:
+        #         results = response.json()['results']
+        #         response_text = results[0]['text']
+        #         response_text = response_text.replace("  ", " ").strip()
+        #         return response_text
 
     except Exception as e:
         raise e
@@ -790,6 +923,8 @@ def show_edit_transcription_popup(formatted_message):
     cancel_button = tk.Button(popup, text="Cancel", command=popup.destroy)
     cancel_button.pack(side=tk.LEFT, padx=10, pady=10)
 
+
+
 def generate_note_thread(text: str):
     """
     Generate a note from the given text and update the GUI with the response.
@@ -797,9 +932,31 @@ def generate_note_thread(text: str):
     :param text: The text to generate a note from.
     :type text: str
     """
-    loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.")
+    global GENERATION_THREAD_ID
+
     thread = threading.Thread(target=generate_note, args=(text,))
     thread.start()
+
+    GENERATION_THREAD_ID = thread.ident
+
+    def cancel_note_generation(thread_id):
+        """Cancels any ongoing note generation.
+        
+        Sets the global flag to stop note generation operations.
+        """
+        global GENERATION_THREAD_ID
+
+        try:
+            kill_thread(thread_id)
+        except Exception as e:
+            # Log the error message
+            # TODO implment system logger
+            print(f"An error occurred: {e}")
+        finally:
+            GENERATION_THREAD_ID = None
+
+    loading_window = LoadingWindow(root, "Generating Note.", "Generating Note. Please wait.", on_cancel=lambda: cancel_note_generation(GENERATION_THREAD_ID))
+    
 
     def check_thread_status(thread, loading_window):
         if thread.is_alive():
@@ -894,6 +1051,8 @@ def set_full_view():
     switch_view_button.grid(row=1, column=7, pady=5, padx=0,sticky='nsew')
     blinking_circle_canvas.grid(row=1, column=8, padx=0,pady=5)
 
+    window.toggle_menu_bar(enable=True)
+
     # Reconfigure button styles and text
     mic_button.config(bg="red" if is_recording else DEFAULT_BUTTON_COLOUR,
                       text="Stop\nRecording" if is_recording else "Start\nRecording")
@@ -921,7 +1080,8 @@ def set_full_view():
     if last_full_position is not None:
         root.geometry(last_full_position)
 
-    root.attributes('-toolwindow', False)
+    # Disable to make the window an app(show taskbar icon)
+    # root.attributes('-toolwindow', False)
 
 
 def set_minimal_view():
@@ -968,6 +1128,8 @@ def set_minimal_view():
 
     blinking_circle_canvas.grid(row=0, column=3, pady=2, padx=2)
 
+    window.toggle_menu_bar(enable=False)
+
     # Update window properties for minimal view
     root.attributes('-topmost', True)
     root.minsize(125, 50)  # Smaller minimum size for minimal view
@@ -996,7 +1158,8 @@ def set_minimal_view():
     if last_minimal_position:
         root.geometry(last_minimal_position)
 
-    root.attributes('-toolwindow', True)
+    # Enable to make the window a tool window (no taskbar icon)
+    # root.attributes('-toolwindow', True)
 
 def copy_text(widget):
     text = widget.get("1.0", tk.END)
@@ -1011,6 +1174,29 @@ def remove_placeholder(event, text_widget, placeholder_text="Text box"):
     if text_widget.get("1.0", "end-1c") == placeholder_text:
         text_widget.delete("1.0", "end")
         text_widget.config(fg='black')
+
+def load_stt_model(event=None):
+    thread = threading.Thread(target=_load_stt_model_thread, daemon=True)
+    thread.start()
+
+def _load_stt_model_thread():
+    global stt_local_model
+    model = app_settings.editable_settings["Whisper Model"].strip()
+    # Create a loading window to display the loading message
+    stt_loading_window = LoadingWindow(root, "Speech to Text", "Loading Speech to Text. Please wait.")
+    print(f"Loading STT model: {model}")
+    try:
+        # Load the specified Whisper model
+        stt_local_model = whisper.load_model(model)
+        print("STT model loaded successfully.")
+    except Exception as e:
+        # Log the error message
+        print(f"An error occurred while loading STT: {e}")
+        stt_local_model = None
+        messagebox.showerror("Error", f"An error occurred while loading the STT model: {e}")
+    finally:
+        stt_loading_window.destroy()
+        print("Closing STT loading window.")
 
 
 # Configure grid weights for scalability
@@ -1106,21 +1292,13 @@ root.minsize(900, 400)
 if app_settings.editable_settings["Use Local LLM"]:
     root.after(100, lambda:(ModelManager.setup_model(app_settings=app_settings, root=root)))  
 
+if app_settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value]:
+    # Inform the user that Local Whisper is being used for transcription
+    print("Using Local Whisper for transcription.")
+    root.after(100, lambda: (load_stt_model()))
+
+root.bind("<<LoadSttModel>>", load_stt_model)
+
 root.mainloop()
 
 p.terminate()
-
-def on_exit():
-    # Create a pop up that says yes or no with tkinter messagebox to option to close the docker containers
-
-    global window
-
-    main_window = window.logic
-
-    if main_window.container_manager is not None and app_settings.editable_settings["Auto Shutdown Containers on Exit"] is True:
-        main_window.container_manager.stop_container(app_settings.editable_settings["LLM Container Name"])
-        main_window.container_manager.stop_container(app_settings.editable_settings["LLM Caddy Container Name"])
-        main_window.container_manager.stop_container(app_settings.editable_settings["Whisper Container Name"])
-        main_window.container_manager.stop_container(app_settings.editable_settings["Whisper Caddy Container Name"])
-
-atexit.register(on_exit)

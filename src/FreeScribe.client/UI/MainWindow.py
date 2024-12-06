@@ -19,7 +19,7 @@ and Research Students - Software Developer Alex Simko, Pemba Sherpa (F24), and N
 
 """
 
-from ContainerManager import ContainerManager
+from ContainerManager import ContainerManager, ContainerState
 import tkinter as tk
 
 class MainWindow:
@@ -97,3 +97,25 @@ class MainWindow:
             self.container_manager.set_status_icon_color(widget_name, self.container_manager.stop_container(app_settings.editable_settings["Whisper Caddy Container Name"]))
         except Exception as e:
             tk.messagebox.showerror("Error", f"An error occurred while stopping the Whisper container: {e}")
+
+    def check_llm_containers(self):
+        """
+        Check the status of the LLM containers.
+        """
+        status_check = all([
+            self.container_manager.check_container_status(self.settings.editable_settings["LLM Container Name"]),
+            self.container_manager.check_container_status(self.settings.editable_settings["LLM Caddy Container Name"]),
+            self.container_manager.check_container_status(self.settings.editable_settings["LLM Authentication Container Name"])
+        ])
+        return ContainerState.CONTAINER_STARTED if status_check else ContainerState.CONTAINER_STOPPED
+
+    def check_whisper_containers(self):
+        """
+        Check the status of the Whisper containers.
+        """
+        status_check = all([
+            self.container_manager.check_container_status(self.settings.editable_settings["Whisper Container Name"]),
+            self.container_manager.check_container_status(self.settings.editable_settings["Whisper Caddy Container Name"])
+        ])
+
+        return ContainerState.CONTAINER_STARTED if status_check else ContainerState.CONTAINER_STOPPED 

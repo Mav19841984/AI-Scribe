@@ -27,7 +27,8 @@ import threading
 from Model import Model, ModelManager
 from utils.file_utils import get_file_path
 from UI.MarkdownWindow import MarkdownWindow
-
+from UI.Widgets.MicrophoneSelector import MicrophoneSelector
+from UI.SettingsWindow import SettingsKeys, FeatureToggle
 
 
 class SettingsWindowUI:
@@ -50,7 +51,7 @@ class SettingsWindowUI:
         advanced_settings_frame (tk.Frame): The scrollable frame for advanced settings.
     """
 
-    def __init__(self, settings, main_window):
+    def __init__(self, settings, main_window, root):
         """
         Initializes the SettingsWindowUI.
 
@@ -59,6 +60,7 @@ class SettingsWindowUI:
         """
         self.settings = settings
         self.main_window = main_window
+        self.root = root
         self.settings_window = None
         self.main_frame = None
         self.notebook = None
@@ -67,6 +69,7 @@ class SettingsWindowUI:
         self.docker_settings_frame = None
         self.basic_settings_frame = None
         self.advanced_settings_frame = None
+        self.widgets = {}
         
 
     def open_settings_window(self):
@@ -100,7 +103,6 @@ class SettingsWindowUI:
         self.notebook.add(self.llm_settings_frame, text="AI Settings")
         self.notebook.add(self.whisper_settings_frame, text="Speech-to-Text Settings")
         self.notebook.add(self.advanced_frame, text="Advanced Settings")
-        self.notebook.add(self.docker_settings_frame, text="Docker Settings")
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.close_window)
 
@@ -114,7 +116,11 @@ class SettingsWindowUI:
         self.create_llm_settings()
         self.create_whisper_settings()
         self.create_advanced_settings()
-        self.create_docker_settings()
+
+        if FeatureToggle.DOCKER_SETTINGS_TAB is True:
+            self.notebook.add(self.docker_settings_frame, text="Docker Settings")
+            self.create_docker_settings()
+        
         self.create_buttons()
 
 
@@ -162,13 +168,21 @@ class SettingsWindowUI:
         left_row = 0
         right_row = 0
 
+        # Create the SettingsKeys.LOCAL_WHISPER button to handle custom behavior
+        tk.Label(left_frame, text=f"{SettingsKeys.LOCAL_WHISPER.value}").grid(row=left_row, column=0, padx=0, pady=5, sticky="w")
+        value = tk.IntVar(value=(self.settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value]))
+        self.local_whisper_checkbox = tk.Checkbutton(left_frame, variable=value, command=self.toggle_remote_whisper_settings)
+        self.local_whisper_checkbox.grid(row=left_row, column=1, padx=0, pady=5, sticky="w")
+        self.settings.editable_settings_entries[SettingsKeys.LOCAL_WHISPER.value] = value
+
+        left_row += 1
 
         left_row, right_row = self.create_editable_settings_col(left_frame, right_frame, left_row, right_row, self.settings.whisper_settings)
         # create the whisper model dropdown slection
-        tk.Label(right_frame, text="Whisper Model").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
+        tk.Label(left_frame, text="Whisper Model").grid(row=3, column=0, padx=0, pady=5, sticky="w")
         whisper_models_drop_down_options = ["medium", "small", "tiny", "tiny.en", "base", "base.en", "small.en", "medium.en", "large"]
-        self.whisper_models_drop_down = ttk.Combobox(right_frame, values=whisper_models_drop_down_options, width=13)
-        self.whisper_models_drop_down.grid(row=right_row, column=1, padx=0, pady=5, sticky="w")
+        self.whisper_models_drop_down = ttk.Combobox(left_frame, values=whisper_models_drop_down_options, width=13)
+        self.whisper_models_drop_down.grid(row=3, column=1, padx=0, pady=5, sticky="w")
 
         try:
             # Try to set the whisper model dropdown to the current model
@@ -178,6 +192,31 @@ class SettingsWindowUI:
             self.whisper_models_drop_down.set(self.settings.editable_settings["Whisper Model"])
 
         self.settings.editable_settings_entries["Whisper Model"] = self.whisper_models_drop_down
+
+        # create the whisper model dropdown slection
+        microphone_select = MicrophoneSelector(left_frame, left_row, 0, self.settings)
+        self.settings.editable_settings_entries["Current Mic"] = microphone_select
+        
+        left_row += 1
+
+        # set the state of the whisper settings based on the SettingsKeys.LOCAL_WHISPER.value checkbox once all widgets are created
+        self.toggle_remote_whisper_settings()
+
+    def toggle_remote_whisper_settings(self):
+        current_state = self.settings.editable_settings_entries[SettingsKeys.LOCAL_WHISPER.value].get()
+        
+        for setting in self.settings.whisper_settings:
+            if setting in ["Real Time", "BlankSpace"]:
+                continue
+            
+            state = "normal" if current_state == 0 else "disabled"
+            self.widgets[setting].config(state=state)
+        
+        # set the local option to disabled on switch to remote
+        inverted_state = "disabled" if current_state == 0 else "normal"
+        self.whisper_models_drop_down.config(state=inverted_state)
+
+
 
     def create_llm_settings(self):
         """
@@ -194,31 +233,27 @@ class SettingsWindowUI:
         left_row = 0
         right_row = 0
 
-        # 1. LLM Preset (Left Column)
-        tk.Label(left_frame, text="LLM Preset:").grid(row=left_row, column=0, padx=0, pady=5, sticky="w")
-        llm_preset_options = ["JanAI", "ChatGPT", "ClinicianFocus Toolbox", "Custom"]
-        self.llm_preset_dropdown = ttk.Combobox(left_frame, values=llm_preset_options, width=15, state="readonly")
-        self.llm_preset_dropdown.current(llm_preset_options.index(self.settings.editable_settings["Preset"]))
-        self.llm_preset_dropdown.grid(row=left_row, column=1, padx=0, pady=5, sticky="w")
+        # Use local llm button with custom handler
+        tk.Label(left_frame, text="Local LLM").grid(row=left_row, column=0, padx=0, pady=5, sticky="w")
+        value = tk.IntVar(value=(self.settings.editable_settings["Use Local LLM"]))
+        self.local_llm_checkbox = tk.Checkbutton(left_frame, variable=value, command=self.toggle_remote_llm_settings)
+        self.local_llm_checkbox.grid(row=left_row, column=1, padx=0, pady=5, sticky="w")
+        self.settings.editable_settings_entries["Use Local LLM"] = value
 
-        load_preset_btn = ttk.Button(left_frame, text="Load", width=5, 
-                                    command=lambda: self.settings.load_settings_preset(self.llm_preset_dropdown.get(), self))
-        load_preset_btn.grid(row=left_row, column=2, padx=0, pady=5, sticky="w")
         left_row += 1
 
-        # 2. OpenAI API Key (Right Column)
-        tk.Label(right_frame, text="OpenAI API Key:").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
-        self.openai_api_key_entry = tk.Entry(right_frame, width=25)
-        self.openai_api_key_entry.insert(0, self.settings.OPENAI_API_KEY)
-        self.openai_api_key_entry.grid(row=right_row, column=1, columnspan=2, padx=0, pady=5, sticky="w")
-        right_row += 1
+        #6. GPU OR CPU SELECTION (Right Column)
+        tk.Label(left_frame, text="Local Architecture").grid(row=left_row, column=0, padx=0, pady=5, sticky="w")
+        architecture_options = self.settings.get_available_architectures()
+        self.architecture_dropdown = ttk.Combobox(left_frame, values=architecture_options, width=15, state="readonly")
+        if self.settings.editable_settings["Architecture"] in architecture_options:
+            self.architecture_dropdown.current(architecture_options.index(self.settings.editable_settings["Architecture"]))
+        else:
+            # Default cpu
+            self.architecture_dropdown.set("CPU")
 
-        # 3. API Style (Left Column)
-        tk.Label(left_frame, text="API Style:").grid(row=left_row, column=0, padx=0, pady=5, sticky="w")
-        api_options = ["OpenAI", "KoboldCpp"]
-        self.api_dropdown = ttk.Combobox(left_frame, values=api_options, width=15, state="readonly")
-        self.api_dropdown.current(api_options.index(self.settings.API_STYLE))
-        self.api_dropdown.grid(row=left_row, column=1, columnspan=2, padx=0, pady=5, sticky="w")
+        self.architecture_dropdown.grid(row=left_row, column=1, padx=0, pady=5, sticky="w")
+
         left_row += 1
 
         # 5. Models (Left Column)
@@ -241,18 +276,65 @@ class SettingsWindowUI:
 
         left_row += 1
 
-        #6. GPU OR CPU SELECTION (Right Column)
-        tk.Label(right_frame, text="Local Architecture").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
-        architecture_options = ["CPU", "CUDA (Nvidia GPU)"]
-        self.architecture_dropdown = ttk.Combobox(right_frame, values=architecture_options, width=15, state="readonly")
-        self.architecture_dropdown.current(architecture_options.index(self.settings.editable_settings["Architecture"]))
+        right_frame, right_row = self.create_editable_settings(right_frame, self.settings.llm_settings, padx=0, pady=0)
 
-        self.architecture_dropdown.grid(row=right_row, column=1, padx=0, pady=5, sticky="w")
-
+        # 2. OpenAI API Key (Right Column)
+        tk.Label(right_frame, text="OpenAI API Key:").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
+        self.openai_api_key_entry = tk.Entry(right_frame, width=25)
+        self.openai_api_key_entry.insert(0, self.settings.OPENAI_API_KEY)
+        self.openai_api_key_entry.grid(row=right_row, column=1, columnspan=2, padx=0, pady=5, sticky="w")
+        
         right_row += 1
 
-        self.create_editable_settings_col(left_frame, right_frame, left_row, right_row, self.settings.llm_settings)
+        #################################################################
+        #                                                               #
+        #               API STYLE SELECTION                             #
+        #   THIS SECTION IS COMENTED OUT FOR FUTURE RELEASE AND REVIEW. #
+        #   THE ONLY API STYLE SUPPORTED FOR NOW IS OPENAI.             #
+        #   THE KOBOLD API STYLE HAS BEEN REMOVED FOR SIMPLIFICATION    #
+        #                                                               #
+        #################################################################
+        # # 3. API Style (Left Column)
+        # tk.Label(right_frame, text="API Style:").grid(row=right_row, column=0, padx=0, pady=5, sticky="w")
+        # api_options = ["OpenAI", "KoboldCpp"]
+        # self.api_dropdown = ttk.Combobox(right_frame, values=api_options, width=15, state="readonly")
+        # self.api_dropdown.current(api_options.index(self.settings.API_STYLE))
+        # self.api_dropdown.grid(row=right_row, column=1, columnspan=2, padx=0, pady=5, sticky="w")
+        # right_row += 1
+
+        # set the state of the llm settings based on the local llm checkbox once all widgets are created
+        self.settings_opened = True
+        self.toggle_remote_llm_settings()
  
+    def toggle_remote_llm_settings(self):
+        current_state = self.settings.editable_settings_entries["Use Local LLM"].get()
+        
+        state = "normal" if current_state == 0 else "disabled"
+
+
+        # toggle all manual settings based on the local llm checkbox
+        self.openai_api_key_entry.config(state=state)
+        # self.api_dropdown.config(state=state)
+
+        for setting in self.settings.llm_settings:
+            if setting == "BlankSpace":
+                continue
+            
+            self.widgets[setting].config(state=state)
+
+        inverted_state = "disabled" if current_state == 0 else "normal"
+        self.architecture_dropdown.config(state=inverted_state)
+        
+        #flag used for determining if window was just opened so we dont spam the API.
+        if not self.settings_opened:
+            threading.Thread(target=self.settings.update_models_dropdown, args=(self.models_drop_down,self.settings.editable_settings_entries["Model Endpoint"].get(),)).start()
+        else:
+            self.settings_opened = False
+            
+        self.on_model_selection_change(None)
+
+            
+
     def on_model_selection_change(self, event):
         """
         Handle switching between model dropdown and custom model entry.
@@ -323,11 +405,16 @@ class SettingsWindowUI:
         """
         row = start_row
         for setting_name in settings:
+
+            if setting_name == "BlankSpace":
+                row += 1
+                continue
+
             value = self.settings.editable_settings[setting_name]
             if value in [True, False]:
-                self._create_checkbox(frame, setting_name, setting_name, row)
+                self.widgets[setting_name] = self._create_checkbox(frame, setting_name, setting_name, row)
             else:
-                self._create_entry(frame, setting_name, setting_name, row)
+                self.widgets[setting_name] = self._create_entry(frame, setting_name, setting_name, row)
             row += 1
         return row
 
@@ -345,7 +432,7 @@ class SettingsWindowUI:
         def create_processing_section(label_text, setting_key, text_content, row):
             frame = tk.Frame(self.advanced_settings_frame, width=800)
             frame.grid(row=row, column=0, padx=10, pady=0, sticky="nw")
-            self._create_checkbox(frame, f"Use {label_text}", f"Use {label_text}", 0)
+            self._create_checkbox(frame, f"Use {label_text}", setting_key, 0)
             row += 1
             
             text_area, row = self._create_text_area(label_text, text_content, row)
@@ -391,7 +478,7 @@ class SettingsWindowUI:
         )
         
         self.postprocess_text, _ = create_processing_section(
-            "Post-Processing",
+            "Post-Processing (Experimental. Use with caution.)",
             "Use Post-Processing", 
             self.settings.editable_settings["Post-Processing"],
             row
@@ -406,7 +493,7 @@ class SettingsWindowUI:
         """
         self.create_editable_settings(self.docker_settings_frame, self.settings.docker_settings)
 
-    def create_editable_settings(self, frame, settings_set, start_row=0):
+    def create_editable_settings(self, frame, settings_set, start_row=0, padx=10, pady=5):
         """
         Creates editable settings UI elements.
 
@@ -417,8 +504,9 @@ class SettingsWindowUI:
         """
         
         i_frame = ttk.Frame(frame)
-        i_frame.grid(row=0, column=0, padx=10, pady=5, sticky="nw")
-        self._process_column(i_frame, settings_set, start_row)
+        i_frame.grid(row=0, column=0, padx=padx, pady=pady, sticky="nw")
+        row = self._process_column(i_frame, settings_set, start_row)
+        return i_frame, row
 
     def create_buttons(self):
         """
@@ -447,7 +535,6 @@ class SettingsWindowUI:
         This method retrieves the values from the UI elements and calls the
         `save_settings` method of the `settings` object to save the settings.
         """
-
         self.settings.load_or_unload_model(self.settings.editable_settings["Model"],
             self.get_selected_model(),
             self.settings.editable_settings["Use Local LLM"],
@@ -465,12 +552,16 @@ class SettingsWindowUI:
         # save architecture
         self.settings.editable_settings["Architecture"] = self.architecture_dropdown.get()
 
+        # save the old whisper model to compare with the new model later
+        old_local_whisper = self.settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value]
+        old_model = self.settings.editable_settings["Whisper Model"]
+
         self.settings.save_settings(
             self.openai_api_key_entry.get(),
             self.aiscribe_text.get("1.0", "end-1c"), # end-1c removes the trailing newline
             self.aiscribe2_text.get("1.0", "end-1c"), # end-1c removes the trailing newline
             self.settings_window,
-            self.api_dropdown.get(),
+            # self.api_dropdown.get(),
             self.cutoff_slider.threshold / 32768,
         )
 
@@ -487,6 +578,13 @@ class SettingsWindowUI:
         if close_window:
             self.close_window()
 
+        # loading the model after the window is closed to prevent the window from freezing
+        # if Local Whisper is selected, compare the old model with the new model and reload the model if it has changed
+        if self.settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value] and (
+                old_local_whisper != self.settings.editable_settings[SettingsKeys.LOCAL_WHISPER.value] or old_model !=
+                self.settings.editable_settings["Whisper Model"]):
+            self.root.event_generate("<<LoadSttModel>>")
+
     def reset_to_default(self):
         """
         Resets the settings to their default values.
@@ -502,7 +600,22 @@ class SettingsWindowUI:
 
         This method creates and places UI elements for general settings.
         """
-        self.create_editable_settings(self.general_settings_frame, self.settings.general_settings)
+        frame, row = self.create_editable_settings(self.general_settings_frame, self.settings.general_settings)
+        
+        # 1. LLM Preset (Left Column)
+        tk.Label(frame, text="Settings Presets:").grid(row=row, column=0, padx=0, pady=5, sticky="w")
+        llm_preset_options = ["Local AI", "ClinicianFocus Toolbox", "Custom"]
+        self.llm_preset_dropdown = ttk.Combobox(frame, values=llm_preset_options, width=15, state="readonly")
+        if self.settings.editable_settings["Preset"] in llm_preset_options:
+            self.llm_preset_dropdown.current(llm_preset_options.index(self.settings.editable_settings["Preset"]))
+        else:
+            self.llm_preset_dropdown.set("Custom")
+        self.llm_preset_dropdown.grid(row=row, column=1, padx=0, pady=5, sticky="w")
+
+        load_preset_btn = ttk.Button(frame, text="Load", width=5, 
+                                    command=lambda: self.settings.load_settings_preset(self.llm_preset_dropdown.get(), self))
+        load_preset_btn.grid(row=row, column=2, padx=0, pady=5, sticky="w")
+        
         # Add a note at the bottom of the general settings frame
         note_text = (
             "Note: 'Show Scrub PHI' will only work for local LLM and private network.\n"
@@ -512,7 +625,7 @@ class SettingsWindowUI:
         note_label.grid(padx=10, pady=5, sticky="w")
 
 
-    def _create_checkbox(self, frame, label, setting_name, row_idx):
+    def _create_checkbox(self, frame, label, setting_name, row_idx, setting_key=None):
         """
         Creates a checkbox in the given frame.
 
@@ -529,6 +642,7 @@ class SettingsWindowUI:
         checkbox = tk.Checkbutton(frame, variable=value)
         checkbox.grid(row=row_idx, column=1, padx=0, pady=5, sticky="w")
         self.settings.editable_settings_entries[setting_name] = value
+        return checkbox
 
     def _create_entry(self, frame, label, setting_name, row_idx):
         """
@@ -548,6 +662,7 @@ class SettingsWindowUI:
         entry.insert(0, str(value))
         entry.grid(row=row_idx, column=1, padx=0, pady=5, sticky="w")
         self.settings.editable_settings_entries[setting_name] = entry
+        return entry
 
     def _create_section_header(self, text, row, text_colour="black"):
         """
@@ -599,5 +714,6 @@ class SettingsWindowUI:
         """
         self.settings_window.unbind_all("<MouseWheel>") # Unbind mouse wheel event causing errors
         self.settings_window.unbind_all("<Configure>") # Unbind the configure event causing errors
+        self.cutoff_slider.destroy()
 
         self.settings_window.destroy()

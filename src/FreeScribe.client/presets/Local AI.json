@@ -1,8 +1,8 @@
 {
   "openai_api_key": "None",
   "editable_settings": {
-    "Model": "gpt-4o-mini",
-    "Model Endpoint": "https://api.openai.com/v1/",
+    "Model": "gemma2:2b-instruct-q8_0",
+    "Model Endpoint": "http://localhost:3334/v1/",
     "use_story": 0,
     "use_memory": 0,
     "use_authors_note": 0,
@@ -23,7 +23,7 @@
     "frmttriminc": 0,
     "frmtrmblln": 0,
     "Local Whisper": 1,
-    "Whisper Endpoint": "https://localhost:2224/whisperaudio",
+    "Whisper Endpoint": "https://localhost:2224/whisperaudio/",
     "Whisper Server API Key": "None",
     "Whisper Model": "small.en",
     "Real Time": 1,
@@ -37,7 +37,7 @@
     "Auto Shutdown Containers on Exit": 1,
     "Use Docker Status Bar": 0,
     "Preset": "Custom",
-    "Use Local LLM": 0,
+    "Use Local LLM": 1,
     "Architecture": "CPU",
     "best_of": "2",
     "Use best_of": 0,

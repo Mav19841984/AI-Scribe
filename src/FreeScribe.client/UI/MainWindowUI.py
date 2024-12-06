@@ -1,9 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 import UI.MainWindow as mw
+from UI.SettingsWindow import FeatureToggle
 from UI.SettingsWindowUI import SettingsWindowUI
 from UI.MarkdownWindow import MarkdownWindow
 from utils.file_utils import get_file_path
+from UI.DebugWindow import DebugPrintWindow
+
+DOCKER_CONTAINER_CHECK_INTERVAL = 10000  # Interval in milliseconds to check the Docker container status
+DOCKER_DESKTOP_CHECK_INTERVAL = 10000  # Interval in milliseconds to check the Docker Desktop status
 
 class MainWindowUI:
     """
@@ -23,11 +28,15 @@ class MainWindowUI:
         """
         self.root = root  # Tkinter root window
         self.docker_status_bar = None  # Docker status bar frame
+        self.is_status_bar_enabled = False  # Flag to indicate if the Docker status bar is enabled
         self.app_settings = settings  # Application settings
         self.logic = mw.MainWindow(self.app_settings)  # Logic to control the container behavior
         self.scribe_template = None
-        self.setting_window = SettingsWindowUI(self.app_settings, self)  # Settings window
+        self.setting_window = SettingsWindowUI(self.app_settings, self, self.root)  # Settings window
         self.root.iconbitmap(get_file_path('assets','logo.ico'))
+
+        self.current_docker_status_check_id = None  # ID for the current Docker status check
+        self.current_container_status_check_id = None  # ID for the current container status check
 
     def load_main_window(self):
         """
@@ -60,6 +69,9 @@ class MainWindowUI:
         Create a Docker status bar to display the status of the LLM and Whisper containers.
         Adds start and stop buttons for each container.
         """
+        # if not feature do not do this
+        if FeatureToggle.DOCKER_STATUS_BAR is not True:
+            return
         
         if self.docker_status_bar is not None:
             return
@@ -69,8 +81,8 @@ class MainWindowUI:
         self.docker_status_bar.grid(row=4, column=0, columnspan=14, sticky='nsew')
 
         # Add a label to indicate Docker container status section
-        docker_status = tk.Label(self.docker_status_bar, text="Docker Container Status:", padx=10)
-        docker_status.pack(side=tk.LEFT)
+        self.docker_status = tk.Label(self.docker_status_bar, text="Docker Container Status:", padx=10)
+        self.docker_status.pack(side=tk.LEFT)
 
         # Add LLM container status label
         llm_status = tk.Label(self.docker_status_bar, text="LLM Container Status:", padx=10)
@@ -106,16 +118,21 @@ class MainWindowUI:
         stop_llm_button = tk.Button(self.docker_status_bar, text="Stop LLM", command=lambda: self.logic.stop_LLM_container(llm_dot, self.app_settings))
         stop_llm_button.pack(side=tk.RIGHT)
 
-        if self.logic.container_manager.client is not None:
-            self.enable_docker_ui()
-        else:
-            docker_status.config(text="(Docker not found)")
-            self.disable_docker_ui()
+        self.is_status_bar_enabled = True
+        self._background_availbility_docker_check()
+        self._background_check_container_status(llm_dot, whisper_dot)
 
     def disable_docker_ui(self):
         """
         Disable the Docker status bar UI elements.
         """
+        
+        if FeatureToggle.DOCKER_STATUS_BAR is not True:
+            return
+
+        
+        self.is_status_bar_enabled = False
+        self.docker_status.config(text="(Docker not found)")
         if self.docker_status_bar is not None:
             for child in self.docker_status_bar.winfo_children():
                 child.configure(state='disabled')
@@ -124,6 +141,12 @@ class MainWindowUI:
         """
         Enable the Docker status bar UI elements.
         """
+
+        if FeatureToggle.DOCKER_STATUS_BAR is not True:
+            return
+        
+        self.is_status_bar_enabled = True
+        self.docker_status.config(text="Docker Container Status: ")
         if self.docker_status_bar is not None:
             for child in self.docker_status_bar.winfo_children():
                 child.configure(state='normal')
@@ -132,9 +155,33 @@ class MainWindowUI:
         """
         Destroy the Docker status bar if it exists.
         """
+        if FeatureToggle.DOCKER_STATUS_BAR is not True:
+            return
+            
         if self.docker_status_bar is not None:
             self.docker_status_bar.destroy()
             self.docker_status_bar = None
+
+        # cancel the check loop as the bar no longer exists and it is waster resources.
+        if self.current_docker_status_check_id is not None:
+            self.root.after_cancel(self.current_docker_status_check_id)
+            self.current_docker_status_check_id = None
+        
+        if self.current_container_status_check_id is not None:
+            self.root.after_cancel(self.current_container_status_check_id)
+            self.current_container_status_check_id = None
+
+    def toggle_menu_bar(self, enable: bool):
+        """
+        Enable or disable the menu bar.
+
+        :param enable: True to enable the menu bar, False to disable it.
+        :type enable: bool
+        """
+        if enable:
+            self._create_menu_bar()
+        else:
+            self._destroy_menu_bar()
 
     def _create_menu_bar(self):
         """
@@ -147,19 +194,64 @@ class MainWindowUI:
         self._create_settings_menu()
         self._create_help_menu()
 
+    def _destroy_menu_bar(self):
+        """
+        Private method to destroy the menu bar.
+        Destroy the menu bar if it exists.
+        """
+        if self.menu_bar is not None:
+            self.menu_bar.destroy()
+            self.menu_bar = None
+            self._destroy_settings_menu()
+            self._destroy_help_menu()
+
     def _create_settings_menu(self):
         # Add Settings menu
         setting_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Settings", menu=setting_menu)
         setting_menu.add_command(label="Settings", command=self.setting_window.open_settings_window)
 
+    def _destroy_settings_menu(self):
+        """
+        Private method to destroy the Settings menu.
+        Destroy the Settings menu if it exists.
+        """
+        if self.menu_bar is not None:
+            setting_menu = self.menu_bar.nametowidget('Settings')
+            if setting_menu is not None:
+                setting_menu.destroy()
+
     def _create_help_menu(self):
         # Add Help menu
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Debug Window", command=lambda: DebugPrintWindow(self.root))
         help_menu.add_command(label="About", command=lambda: self._show_md_content(get_file_path('markdown','help','about.md'), 'About'))
 
+    def _destroy_help_menu(self):
+        """
+        Private method to destroy the Help menu.
+        Destroy the Help menu if it exists.
+        """
+        if self.menu_bar is not None:
+            help_menu = self.menu_bar.nametowidget('Help')
+            if help_menu is not None:
+                help_menu.destroy()
+
+    def disable_settings_menu(self):
+        """
+        Disable the Settings menu.
+        """
+        if self.menu_bar is not None:
+            self.menu_bar.entryconfig("Settings", state="disabled")  # Disables the entire Settings menu
     
+    def enable_settings_menu(self):
+        """
+        Enable the Settings menu.
+        """
+        if self.menu_bar is not None:
+            self.menu_bar.entryconfig("Settings", state="normal")
+
     def _show_md_content(self, file_path: str, title: str, show_checkbox: bool = False):
         """
         Private method to display help/about information.
@@ -210,4 +302,40 @@ class MainWindowUI:
         if self.scribe_template is not None:
             self.scribe_template.destroy()
             self.scribe_template = None
+
+    def _background_availbility_docker_check(self):
+        """
+        Check if the Docker client is available in the background.
+
+        This method is intended to be run in a separate thread to periodically
+        check the availability of the Docker client.
+        """
+        print("Checking Docker availability in the background...")
+        if self.logic.container_manager.check_docker_availability():
+            # Enable the Docker status bar UI elements if not enabled
+            if not self.is_status_bar_enabled:
+                self.enable_docker_ui()
+            print("Docker client is available.")
+        else:
+            # Disable the Docker status bar UI elements if not disabled
+            if self.is_status_bar_enabled:
+                self.disable_docker_ui()
+
+            print("Docker client is not available.")
+
+        self.current_docker_status_check_id = self.root.after(DOCKER_DESKTOP_CHECK_INTERVAL, self._background_availbility_docker_check)
+
+    def _background_check_container_status(self, llm_dot, whisper_dot):
+        """
+        Check the status of Docker containers in the background.
+
+        This method is intended to be run in a separate thread to periodically
+        check the status of the LLM and Whisper containers.
+        """
+        if self.is_status_bar_enabled:
+            self.logic.container_manager.set_status_icon_color(llm_dot, self.logic.check_llm_containers())
+            self.logic.container_manager.set_status_icon_color(whisper_dot, self.logic.check_whisper_containers())
+            self.current_container_status_check_id = self.root.after(DOCKER_CONTAINER_CHECK_INTERVAL, self._background_check_container_status, llm_dot, whisper_dot)
+
+
 

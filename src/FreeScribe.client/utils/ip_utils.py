@@ -1,5 +1,6 @@
 import ipaddress
 from urllib.parse import urlparse
+import re
 
 
 def extract_ip_from_url(url):
@@ -30,3 +31,21 @@ def is_private_ip(ip_or_url):
   except ValueError:
       # Handle invalid IP address
       return False
+
+def is_valid_url(url):
+    """
+    Validates if the provided string is a URL.
+
+    A URL is considered valid if it starts with 'http://' or 'https://', 
+    optionally includes 'www.', and contains a combination of alphanumeric 
+    characters, dots, and slashes.
+
+    Args:
+        url (str): The URL string to validate.
+
+    Returns:
+        bool: True if the string is a valid URL, False otherwise.
+    """
+
+    url_regex = re.compile(r'https?://(?:www\.)?[a-zA-Z0-9./]+')
+    return re.match(url_regex, url) is not None

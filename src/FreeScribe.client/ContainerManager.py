@@ -137,6 +137,9 @@ class ContainerManager:
         except docker.errors.APIError as e:
             print(f"An error occurred while checking the container status: {e}")
             return False
+        except Exception as e:
+            print(f"An error occurred while checking the container status: {e}")
+            return False
 
     def set_status_icon_color(self, widget, status: ContainerState):
         """
@@ -155,31 +158,16 @@ class ContainerManager:
         elif status == ContainerState.CONTAINER_STOPPED:
             widget.config(fg='red')
 
-    def check_docker_status_thread(self, llm_dot, whisper_dot, app_settings):
+    def check_docker_availability(self):
         """
-        Continuously check the status of Docker containers and update status icons.
+        Check if the Docker client is available.
 
-        This method runs in a separate thread and periodically checks the status
-        of specified containers, updating the corresponding status icons.
-
-        :param llm_dot: The widget representing the LLM container status icon.
-        :type llm_dot: tkinter.Widget
-        :param whisper_dot: The widget representing the Whisper container status icon.
-        :type whisper_dot: tkinter.Widget
-        :param app_settings: An object containing application settings.
-        :type app_settings: AppSettings
+        :return: True if the Docker client is available, False otherwise.
+        :rtype: bool
         """
-        while True:
-            print("Checking Docker container status...")
-            # Check the status of the containers and set the color of the status icons.
-            if self.check_container_status(app_settings.editable_settings["LLM Container Name"]) and self.check_container_status(app_settings.editable_settings["LLM Caddy Container Name"]):
-                self.set_status_icon_color(llm_dot, ContainerState.CONTAINER_STARTED)
-            else:
-                self.set_status_icon_color(llm_dot, ContainerState.CONTAINER_STOPPED)
-
-            if self.check_container_status(app_settings.editable_settings["Whisper Container Name"]) and self.check_container_status(app_settings.editable_settings["Whisper Caddy Container Name"]):
-                self.set_status_icon_color(whisper_dot, ContainerState.CONTAINER_STARTED)
-            else:
-                self.set_status_icon_color(whisper_dot, ContainerState.CONTAINER_STOPPED)
-
-            llm_dot.after(10000, lambda: self.check_docker_status_thread(llm_dot, whisper_dot, app_settings))
+        try:
+            self.client = docker.from_env()
+        except docker.errors.DockerException as e:
+            self.client = None
+            
+        return self.client is not None

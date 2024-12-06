@@ -181,6 +181,10 @@ class ModelManager:
         """
         loading_window = LoadingWindow(root, "Loading Model", "Loading Model. Please wait")
 
+        # unload before loading new model
+        if ModelManager.local_model is not None:
+            ModelManager.unload_model()
+
         def load_model():
             """
             Internal function to handle the actual model loading process.

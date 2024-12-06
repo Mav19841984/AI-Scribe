@@ -33,7 +33,7 @@ jobs:
 
       - name: Run PyInstaller for NVIDIA
         run: |
-          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
+          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\scripts\NVIDIA_INSTALL.txt:install_state" --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
 
       # Create CPU-only executable
       - name: Uninstall CUDA-enabled llama_cpp (if necessary) and install CPU-only llama_cpp
@@ -44,7 +44,7 @@ jobs:
 
       - name: Run PyInstaller for CPU-only
         run: |
-          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-cpu --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
+          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\scripts\CPU_INSTALL.txt:install_state" --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-cpu --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
 
       - name: Download and Set up NSIS
         run: |
