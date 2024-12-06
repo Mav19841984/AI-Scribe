@@ -3,6 +3,8 @@
 !include "FileFunc.nsh"
 !include "WordFunc.nsh"
 
+RequestExecutionLevel admin ;Require admin rights on NT6+ (When UAC is turned on)
+
 ; Define the name of the installer
 OutFile "..\dist\FreeScribeInstaller.exe"
 
