@@ -59,7 +59,8 @@ class LoadingWindow:
             
             self.popup = tk.Toplevel(parent)
             self.popup.title(title)
-            self.popup.geometry("200x105")  # Increased height for cancel button
+            # increased width for whisper model type
+            self.popup.geometry("280x105")  # Increased height for cancel button
             self.popup.iconbitmap(get_file_path('assets','logo.ico'))
 
             if parent:

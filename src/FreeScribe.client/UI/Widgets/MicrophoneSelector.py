@@ -75,7 +75,7 @@ class MicrophoneSelector:
         self.label = tk.Label(root, text="Select a Microphone:")
         self.label.grid(row=row, column=0, pady=5, sticky="w")
 
-        self.dropdown = ttk.Combobox(root, state="readonly", width=15)
+        self.dropdown = ttk.Combobox(root, state="readonly", width=20)
         self.dropdown.grid(row=row, pady=5, column=1)
 
         # Populate microphones in the dropdown

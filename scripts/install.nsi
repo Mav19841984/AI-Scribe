@@ -6,6 +6,11 @@
 ; Define the name of the installer
 OutFile "..\dist\FreeScribeInstaller.exe"
 
+; Silent mode flags:
+; /S - Silent mode
+; /ARCH=[CPU|NVIDIA] - Force architecture selection
+; /K - Kill running instance before installation
+
 ; Define the default installation directory to AppData
 InstallDir "$PROGRAMFILES\FreeScribe"
 
@@ -29,6 +34,90 @@ Var /GLOBAL NVIDIA_RADIO
 Var /GLOBAL SELECTED_OPTION
 Var /GLOBAL REMOVE_CONFIG_CHECKBOX
 Var /GLOBAL REMOVE_CONFIG
+Var /GLOBAL Got_Running_Instance
+
+!macro CheckRunningInstanceMacro
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
+    Pop $0 ; Return value
+    ${If} $0 == 0
+        StrCpy $Got_Running_Instance "1"
+    ${Else}
+        StrCpy $Got_Running_Instance "0"
+    ${EndIf}
+!macroend
+
+!macro HideNextButtonMacro
+    GetDlgItem $R0 $HWNDPARENT 1 ; Get the handle of the "Next" button
+    ShowWindow $R0 ${SW_HIDE}    ; Hide the "Next" button
+!macroend
+
+!macro ShowNextButtonMacro
+    GetDlgItem $R0 $HWNDPARENT 1 ; Get the handle of the "Next" button
+    ShowWindow $R0 ${SW_SHOW}    ; Show the "Next" button
+!macroend
+
+!macro GotoNextPageMacro
+    GetDlgItem $1 $HWNDPARENT 1 ; Get the "Next" button handle
+    SendMessage $HWNDPARENT ${WM_COMMAND} 1 $1 ; Simulate clicking the "Next" button
+!macroend
+
+!macro HideBackButtonMacro
+    GetDlgItem $R0 $HWNDPARENT 3 ; Get the handle of the "Back" button
+    ShowWindow $R0 ${SW_HIDE}    ; Hide the "Back" button
+!macroend
+
+Function HideNextButton
+    !insertmacro HideNextButtonMacro
+FunctionEnd
+
+Function ShowNextButton
+    !insertmacro ShowNextButtonMacro
+FunctionEnd
+
+Function GotoNextPage
+    !insertmacro GotoNextPageMacro
+FunctionEnd
+
+Function HideBackButton
+    !insertmacro HideBackButtonMacro
+FunctionEnd
+
+Function un.HideNextButton
+    !insertmacro HideNextButtonMacro
+FunctionEnd
+
+Function un.ShowNextButton
+    !insertmacro ShowNextButtonMacro
+FunctionEnd
+
+Function un.HideBackButton
+    !insertmacro HideBackButtonMacro
+FunctionEnd
+
+Function un.GotoNextPage
+    !insertmacro GotoNextPageMacro
+FunctionEnd
+
+!macro KillFreeScribeProcessMacro
+    nsExec::ExecToStack 'taskkill /F /IM freescribe-client.exe'
+    Pop $0 ; Return value
+
+    ${If} $0 == 0
+        MessageBox MB_OK "FreeScribe process has been terminated."
+        Return
+    ${Else}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "Failed to terminate FreeScribe process. Please close it manually."
+        Return
+    ${EndIf}
+!macroend
+
+Function KillFreeScribeProcess
+    !insertmacro KillFreeScribeProcessMacro
+FunctionEnd
+
+Function un.KillFreeScribeProcess
+    !insertmacro KillFreeScribeProcessMacro
+FunctionEnd
 
 Function Check_For_Old_Version_In_App_Data
     ; Check if the old version exists in AppData
@@ -37,7 +126,6 @@ Function Check_For_Old_Version_In_App_Data
         MessageBox MB_YESNO|MB_ICONQUESTION "An old version of FreeScribe has been detected. Would you like to uninstall it?" IDYES UninstallOldVersion IDNO OldVersionDoesNotExist
         UninstallOldVersion:
             ; Remove the contents/folders of the old version
-            RMDir /r "$APPDATA\FreeScribe\presets"
             RMDir /r "$APPDATA\FreeScribe\_internal"
             RMDir /r "$APPDATA\FreeScribe\models"
 
@@ -105,7 +193,7 @@ FunctionEnd
 
 Function ARCHITECTURE_SELECT_LEAVE
     ${If} $SELECTED_OPTION == "NVIDIA"
-        Call CheckNvidiaDrivers 
+        Call CheckNvidiaDrivers
     ${EndIf}
 FunctionEnd
 
@@ -128,46 +216,186 @@ Function .onInstSuccess
 FunctionEnd
 
 Function un.onInit
-    CheckIfFreeScribeIsRunning:
-    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
-    Pop $0 ; Return value
+    !insertmacro CheckRunningInstanceMacro
+FunctionEnd
 
-    ; Check if the process is running
+; Checks on installer start
+Var RunningInstanceDialog
+Var ForceStopButton
+Var RetryButton
+
+Var StatusLabel
+
+Function un.CreateRunningInstancePage
+    ${If} $Got_Running_Instance == "0"
+        Abort
+    ${EndIf}
+    !insertmacro MUI_HEADER_TEXT "Running Instance Detected" ""
+
+    nsDialogs::Create 1018
+    Pop $RunningInstanceDialog
+
+    ${If} $RunningInstanceDialog == error
+        Abort
+    ${EndIf}
+
+    ; Create status label
+    ${NSD_CreateLabel} 0 10u 100% 24u "FreeScribe is currently running.$\n$\nPlease choose how to proceed: Force Stop or close it manually and Retry"
+    Pop $StatusLabel
+
+    ; Create Force Stop button
+    ${NSD_CreateButton} 10% 50u 30% 12u "Force Stop"
+    Pop $ForceStopButton
+    ${NSD_OnClick} $ForceStopButton un.OnForceStopClick
+
+    ; Create Retry button
+    ${NSD_CreateButton} 45% 50u 30% 12u "Retry"
+    Pop $RetryButton
+    ${NSD_OnClick} $RetryButton un.OnRetryClick
+
+    Call un.HideNextButton
+    Call un.HideBackButton
+
+    nsDialogs::Show
+FunctionEnd
+
+Function un.OnForceStopClick
+    Call un.KillFreeScribeProcess
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
+    Pop $0
+
     ${If} $0 == 0
-        MessageBox MB_RETRYCANCEL "FreeScribe is currently running. Please close the application and try again." IDRETRY CheckIfFreeScribeIsRunning IDCANCEL abort
-        abort:
-            Abort
+        ${NSD_SetText} $StatusLabel "Unable to terminate FreeScribe.$\nPlease close it manually and click Retry."
+    ${Else}
+        StrCpy $Got_Running_Instance "0"
+        Call un.ShowNextButton
+        Call un.GotoNextPage
+        Abort ; Close the dialog and continue uninstallation
     ${EndIf}
 FunctionEnd
-; Checks on installer start
-Function .onInit
-    CheckIfFreeScribeIsRunning:
-    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
-    Pop $0 ; Return value
 
-    ; Check if the process is running
+Function un.OnRetryClick
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
+    Pop $0
+
     ${If} $0 == 0
-        MessageBox MB_RETRYCANCEL "FreeScribe is currently running. Please close the application and try again." IDRETRY CheckIfFreeScribeIsRunning IDCANCEL abort
-        abort:
-            Abort
+        ${NSD_SetText} $StatusLabel "FreeScribe is still running.$\n$\nPlease choose how to proceed: Force Stop or close it manually and Retry"
+    ${Else}
+        StrCpy $Got_Running_Instance "0"
+        Call un.ShowNextButton
+        Call un.GotoNextPage
+        Abort ; Close the dialog and continue uninstallation
     ${EndIf}
+FunctionEnd
+
+PageEx custom
+    PageCallbacks CreateRunningInstancePagePre
+PageExEnd
+
+Function CreateRunningInstancePage
+    ; Skip this page in silent mode
+    IfSilent 0 +2
+    Abort
+    
+    ${If} $Got_Running_Instance == "0"
+        Abort
+    ${EndIf}
+    !insertmacro MUI_HEADER_TEXT "Running Instance Detected" ""
+
+    nsDialogs::Create 1018
+    Pop $RunningInstanceDialog
+
+    ${If} $RunningInstanceDialog == error
+        Abort
+    ${EndIf}
+
+    ; Create status label
+    ${NSD_CreateLabel} 0 10u 100% 24u "FreeScribe is currently running.$\n$\nPlease choose how to proceed: Force Stop or close it manually and Retry"
+    Pop $StatusLabel
+
+    ; Create Force Stop button
+    ${NSD_CreateButton} 10% 50u 30% 12u "Force Stop"
+    Pop $ForceStopButton
+    ${NSD_OnClick} $ForceStopButton OnForceStopClick
+
+    ; Create Retry button
+    ${NSD_CreateButton} 45% 50u 30% 12u "Retry"
+    Pop $RetryButton
+    ${NSD_OnClick} $RetryButton OnRetryClick
+
+    ${If} $Got_Running_Instance == "1"
+        Call HideNextButton
+    ${Else}
+        Call ShowNextButton
+    ${EndIf}
+    Call HideBackButton
+
+    nsDialogs::Show
+FunctionEnd
+
+Function CreateRunningInstancePagePre
+    ${If} $Got_Running_Instance == "0"
+        Abort
+    ${EndIf}
+FunctionEnd
+
+Function OnForceStopClick
+    Call KillFreeScribeProcess
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
+    Pop $0
+
+    ${If} $0 == 0
+        ${NSD_SetText} $StatusLabel "Unable to terminate FreeScribe.$\nPlease close it manually and click Retry."
+    ${Else}
+        StrCpy $Got_Running_Instance "0"
+        Call ShowNextButton
+        Call GotoNextPage
+        Abort ; Close the dialog and continue installation
+    ${EndIf}
+FunctionEnd
+
+Function OnRetryClick
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq freescribe-client.exe" /NH | find /I "freescribe-client.exe" > nul'
+    Pop $0
+
+    ${If} $0 == 0
+        ${NSD_SetText} $StatusLabel "FreeScribe is still running.$\n$\nPlease choose how to proceed: Force Stop or close it manually and Retry"
+    ${Else}
+        StrCpy $Got_Running_Instance "0"
+        Call ShowNextButton
+        Call GotoNextPage
+        Abort ; Close the dialog and continue installation
+    ${EndIf}
+FunctionEnd
+
+Function .onInit
+    !insertmacro CheckRunningInstanceMacro
 
     IfSilent SILENT_MODE NOT_SILENT_MODE
 
     SILENT_MODE:
         ${GetParameters} $R0
-        ; Check for custom parameters
         ${GetOptions} $R0 "/ARCH=" $R1
         ${If} $R1 != ""
             StrCpy $SELECTED_OPTION $R1
         ${EndIf}
         
+        ; Check for /K flag to kill running instance
+        ${GetOptions} $R0 "/K" $R2
+        ${IfNot} ${Errors}
+            Call KillFreeScribeProcess
+            !insertmacro CheckRunningInstanceMacro ; Re-check after killing
+        ${EndIf}
+        
+        ; Skip running instance page in silent mode
+        StrCpy $Got_Running_Instance "0"
+        Return
+
     NOT_SILENT_MODE:
 FunctionEnd
 
 Function CleanUninstall
     ; Remove the contents/folders of the old version
-    RMDir /r "$INSTDIR\presets"
     RMDir /r "$INSTDIR\_internal"
 
     ; Remove the old version executable
@@ -217,14 +445,12 @@ Section "MainSection" SEC01
         ; Add files to the installer
         File /r "..\dist\freescribe-client-nvidia\freescribe-client-nvidia.exe"
         Rename "$INSTDIR\freescribe-client-nvidia.exe" "$INSTDIR\freescribe-client.exe"
-        File /r "..\dist\freescribe-client-nvidia\_internal"  
+        File /r "..\dist\freescribe-client-nvidia\_internal"
     ${EndIf}
 
-
-    ; add presets
-    CreateDirectory "$INSTDIR\presets"
-    SetOutPath "$INSTDIR\presets"
-    File /r "..\src\FreeScribe.client\presets\*"
+    ; Install version file to both nvidia and cpu directories for version checking
+    SetOutPath "$INSTDIR\_internal"
+    File ".\__version__"
 
     SetOutPath "$INSTDIR"
 
@@ -278,7 +504,7 @@ Section "Uninstall"
                 MessageBox MB_RETRYCANCEL "Unable to remove old configuration. Please close any applications using these files and try again." IDRETRY RemoveConfigFiles IDCANCEL ConfigFilesFailed
             ${EndIf}
         ${EndIf}
-    
+
     ; Show message when uninstallation is complete
     MessageBox MB_OK "FreeScribe has been successfully uninstalled."
     Goto EndUninstall
@@ -298,7 +524,7 @@ Function CustomizeFinishPage
 
     nsDialogs::Create 1018
     Pop $0
-    
+
     ${If} $0 == error
         Abort
     ${EndIf}
@@ -349,6 +575,16 @@ Function InsfilesPageLeave
     SetAutoClose true
 FunctionEnd
 
+Function CheckCudaAvailability
+    nsExec::ExecToStack 'nvcc --version'
+    Pop $0 ; Return value
+
+    ${If} $0 != 0
+        MessageBox MB_OK "CUDA is not available. Please ensure 'nvcc' is installed and added to the PATH and restart the installer. Download it from: https://developer.nvidia.com/cuda-downloads"
+        Quit
+    ${EndIf}
+FunctionEnd
+
 Function CheckNvidiaDrivers
     Var /GLOBAL DriverVersion
 
@@ -362,31 +598,36 @@ Function CheckNvidiaDrivers
         ReadRegStr $DriverVersion HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" "DisplayVersion"
     ${EndIf}
 
-    ; No nvidia drivers detected - show error message
+    ; No NVIDIA drivers detected - show error message
     ${If} $DriverVersion == ""
-        MessageBox MB_OK "No valid Nvidia device deteced (Drivers Missing). This program relys on a Nvidia GPU to run. Functionality is not guaranteed without a Nvidia GPU."
+        MessageBox MB_OK "No valid NVIDIA device detected (Drivers Missing). This program relies on an NVIDIA GPU to run. Functionality is not guaranteed without an NVIDIA GPU."
         Goto driver_check_end
     ${EndIf}
+
     ; Push the version number to the stack
     Push $DriverVersion
     ; Push min driver version
     Push ${MIN_CUDA_DRIVER_VERSION}
-    
+
     Call CompareVersions
 
     Pop $0 ; Get the return value
 
     ${If} $0 == 1
-        MessageBox MB_OK "Your NVIDIA driver version ($DriverVersion) is older than the minimum required version (${MIN_CUDA_DRIVER_VERSION}). Please update at https://www.nvidia.com/en-us/drivers/. Then contiune with the installation."
+        MessageBox MB_OK "Your NVIDIA driver version ($DriverVersion) is older than the minimum required version (${MIN_CUDA_DRIVER_VERSION}). Please update at https://www.nvidia.com/en-us/drivers/. Then continue with the installation."
         Abort
     ${EndIf}
+
+    ; Check for CUDA availability
+    Call CheckCudaAvailability
+
     driver_check_end:
 FunctionEnd
 
 ;------------------------------------------------------------------------------
 ; Function: CompareVersions
 ; Purpose: Compares two version numbers in format "X.Y" (e.g., "1.0", "2.3")
-; 
+;
 ; Parameters:
 ;   Stack 1 (bottom): First version string to compare
 ;   Stack 0 (top): Second version string to compare
@@ -410,22 +651,22 @@ Function CompareVersions
     Push $R3
     Push $R4
     Push $R5
-    
+
     ; Split version strings into major and minor numbers
     ${WordFind} $R1 "." "+1" $R2    ; Extract major number from first version
     ${WordFind} $R1 "." "+2" $R3    ; Extract minor number from first version
     ${WordFind} $R0 "." "+1" $R4    ; Extract major number from second version
     ${WordFind} $R0 "." "+2" $R5    ; Extract minor number from second version
-    
+
     ; Convert to comparable numbers:
     ; Multiply major version by 1000 to handle minor version properly
     IntOp $R2 $R2 * 1000            ; Convert first version major number
     IntOp $R4 $R4 * 1000            ; Convert second version major number
-    
+
     ; Add minor numbers to create complete comparable values
     IntOp $R2 $R2 + $R3             ; First version complete number
     IntOp $R4 $R4 + $R5             ; Second version complete number
-    
+
     ; Compare versions and set return value
     ${If} $R2 < $R4                 ; If first version is less than second
         StrCpy $R0 1
@@ -434,7 +675,7 @@ Function CompareVersions
     ${Else}                         ; If versions are equal
         StrCpy $R0 0
     ${EndIf}
-    
+
     ; Restore registers from stack
     Pop $R5
     Pop $R4
@@ -446,7 +687,7 @@ FunctionEnd
 
 Function un.CreateRemoveConfigFilesPage
     !insertmacro MUI_HEADER_TEXT "Remove Configuration Files" "Do you want to remove the configuration files (e.g., settings)?"
-    
+
     nsDialogs::Create 1018
     Pop $0
 
@@ -465,19 +706,21 @@ Function un.RemoveConfigFilesPageLeave
     ${NSD_GetState} $REMOVE_CONFIG_CHECKBOX $REMOVE_CONFIG
 FunctionEnd
 
+; Define the uninstaller pages first
+UninstPage custom un.CreateRunningInstancePage
+!insertmacro MUI_UNPAGE_CONFIRM
+UninstPage custom un.CreateRemoveConfigFilesPage un.RemoveConfigFilesPageLeave
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_UNPAGE_FINISH
+
 ; Define installer pages
+Page custom CreateRunningInstancePage
 !insertmacro MUI_PAGE_LICENSE ".\assets\License.txt"
 Page Custom ARCHITECTURE_SELECT ARCHITECTURE_SELECT_LEAVE
 !insertmacro MUI_PAGE_DIRECTORY
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE InsfilesPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 Page Custom CustomizeFinishPage RunApp
-
-; Define the uninstaller pages
-!insertmacro MUI_UNPAGE_CONFIRM
-UninstPage custom un.CreateRemoveConfigFilesPage un.RemoveConfigFilesPageLeave
-!insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_UNPAGE_FINISH
 
 ; Define the languages
 !insertmacro MUI_LANGUAGE English

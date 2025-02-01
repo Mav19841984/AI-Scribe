@@ -15,6 +15,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
 
+      - name: Create Version Text File for PyInstaller
+        run: |
+          $tag = '${{ github.ref }}' -replace 'refs/tags/', ''
+          echo $tag > .\scripts\__version__
+        shell: pwsh
+
       - name: Install Python
         uses: actions/setup-python@v1
         with:
@@ -24,7 +30,14 @@ jobs:
       # Create CUDA-enabled executable
       - name: Install CUDA-enabled llama_cpp
         run: |
-          pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
+          pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
+
+      - name: Instal CUDA drivers for NVIDIA install
+        run: |
+          pip install nvidia-cudnn-cu12==9.5.0.50
+          pip install nvidia-cuda-runtime-cu12==12.4.127
+          pip install nvidia-cuda-nvrtc-cu12==12.4.127
+          pip install nvidia-cublas-cu12==12.4.5.8
 
       - name: Install requirements
         run: |
@@ -32,11 +45,15 @@ jobs:
 
       - name: Run PyInstaller for NVIDIA
         run: |
-          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\scripts\NVIDIA_INSTALL.txt:install_state" --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
+          pyinstaller --additional-hooks-dir=.\scripts\hooks --add-data ".\scripts\NVIDIA_INSTALL.txt:install_state" --add-data ".\src\FreeScribe.client\whisper-assets:whisper\assets" --add-data ".\src\FreeScribe.client\markdown:markdown" --add-data ".\src\FreeScribe.client\assets:assets" --add-data "C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\site-packages\nvidia:nvidia-drivers" --name freescribe-client-nvidia --icon=.\src\FreeScribe.client\assets\logo.ico --noconsole .\src\FreeScribe.client\client.py
 
       # Create CPU-only executable
       - name: Uninstall CUDA-enabled llama_cpp (if necessary) and install CPU-only llama_cpp
         run: |
+          pip uninstall nvidia-cudnn-cu12==9.5.0.50
+          pip uninstall nvidia-cuda-runtime-cu12==12.4.127
+          pip uninstall nvidia-cuda-nvrtc-cu12==12.4.127
+          pip uninstall nvidia-cublas-cu12==12.4.5.8
           pip uninstall -y llama-cpp-python
           pip install --index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --extra-index-url https://pypi.org/simple llama-cpp-python==v0.2.90
 

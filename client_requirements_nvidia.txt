@@ -28,8 +28,6 @@ networkx==3.3
 nltk==3.9.1
 numba==0.60.0
 numpy==1.26.4
-openai==1.50.2
-openai-whisper==20240927
 packaging==24.1
 pefile==2024.8.26
 phonenumbers==8.13.46
@@ -56,6 +54,7 @@ textblob==0.15.3
 threadpoolctl==3.5.0
 tiktoken==0.7.0
 torch==2.2.2
+torchaudio==2.2.2
 tqdm==4.66.5
 typing_extensions==4.12.2
 tzdata==2024.2
@@ -65,3 +64,10 @@ docker==7.1.0
 markdown==3.7
 tkhtmlview==0.3.1 
 llama-cpp-python==v0.2.90
+faster-whisper==1.1.0
+nvidia-cudnn-cu12==9.5.0.50
+nvidia-cuda-runtime-cu12==12.4.127
+nvidia-cuda-nvrtc-cu12==12.4.127
+nvidia-cublas-cu12==12.4.5.8
+psutil==6.1.0
+Pillow==10.2.0

@@ -1,0 +1,2 @@
+class TranscribeError(Exception):
+    pass

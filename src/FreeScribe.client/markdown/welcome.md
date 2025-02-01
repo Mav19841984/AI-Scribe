@@ -11,26 +11,13 @@ The FreeScribe project leverages advanced machine learning models to transcribe 
 - **Real-time Transcription**: Transcribe conversations in real-time using advanced speech recognition models.
 - **Medical Note Generation**: Automatically generate structured medical notes from transcriptions.
 - **User-Friendly Interface**: Intuitive and easy-to-use interface for healthcare professionals.
-- **Customizable Settings**: Customize the application settings to suit your workflow.
-- **Docker Integration**: Easily manage the application using Docker containers.
+- **Customizable Settings**: Customize the application settings to suit your workflow.+`    
 
 ## Discord Community
 
 Join our Discord community to connect with other users, get support, and collaborate on the AI Medical Scribe project. Our community is a great place to ask questions, share ideas, and stay updated on the latest developments.
 
 [Join our Discord Community](https://discord.gg/6DnPENSn)
-
-## Contributing
-
-We welcome contributions to the FreeScribe project! To contribute:
-
-1. Fork the [repository](https://github.com/ClinicianFOCUS/FreeScribe).
-2. Create a new branch (`git checkout -b feature/your-feature`).
-3. Make your changes and commit them (`git commit -m 'Add some feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a pull request.
-
-Please ensure your code adheres to our coding standards and includes appropriate tests.
 
 ## License
 

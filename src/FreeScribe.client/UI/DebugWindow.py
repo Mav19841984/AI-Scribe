@@ -10,6 +10,7 @@ import io
 import sys
 from datetime import datetime
 from collections import deque
+from utils.utils import bring_to_front
 
 class DualOutput:
     buffer = None
@@ -79,7 +80,12 @@ class DebugPrintWindow:
         :param parent: Parent tkinter window
         :type parent: tk.Tk or tk.Toplevel
         """
-        self.window = tk.Toplevel(parent)
+        self.parent = parent
+        if self.parent.debug_window_open:
+            bring_to_front("Debug Output")
+            return
+        self.parent.debug_window_open = True
+        self.window = tk.Toplevel(parent.root)
         self.window.title("Debug Output")
         self.window.geometry("650x450")
 
@@ -109,6 +115,9 @@ class DebugPrintWindow:
         copy_button = tk.Button(self.window, text="Copy to Clipboard", command=self._copy_to_clipboard)
         copy_button.pack(side=tk.LEFT, pady=10, padx=10)
 
+        # custom function to close the window
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+
         self.refresh_output()
 
     def _copy_to_clipboard(self):
@@ -134,3 +143,7 @@ class DebugPrintWindow:
             self.text_widget.delete("1.0", tk.END)
             self.text_widget.insert(tk.END, content)
             self.text_widget.see(top_line_index)
+
+    def close_window(self):
+        self.parent.debug_window_open = False
+        self.window.destroy()

@@ -34,6 +34,9 @@ class MainWindowUI:
         self.scribe_template = None
         self.setting_window = SettingsWindowUI(self.app_settings, self, self.root)  # Settings window
         self.root.iconbitmap(get_file_path('assets','logo.ico'))
+        self.debug_window_open = False  # Flag to indicate if the debug window is open
+
+        self.warning_bar = None # Warning bar
 
         self.current_docker_status_check_id = None  # ID for the current Docker status check
         self.current_container_status_check_id = None  # ID for the current container status check
@@ -45,8 +48,12 @@ class MainWindowUI:
         """
         self._bring_to_focus()
         self._create_menu_bar()
-        if (self.setting_window.settings.editable_settings['Show Welcome Message']):
-            self._show_welcome_message()
+
+        # Uncomment this once the UI is refactored to this class
+        # For now we need to force load it after all our widgets are created
+        # inside client.py. This is a temporary solution. 
+        # if (self.setting_window.settings.editable_settings['Show Welcome Message']):
+        #     self._show_welcome_message()
 
     def _bring_to_focus(self):
         """
@@ -121,6 +128,50 @@ class MainWindowUI:
         self.is_status_bar_enabled = True
         self._background_availbility_docker_check()
         self._background_check_container_status(llm_dot, whisper_dot)
+
+    def create_warning_bar(self, text):
+        """
+        Create a warning bar at the bottom of the window to notify the user about microphone issues.
+        
+        :param text: Placeholder for text input (unused).
+        :param row: The row in the grid layout where the bar is placed.
+        :param column: The starting column for the grid layout.
+        :param columnspan: The number of columns spanned by the warning bar.
+        :param pady: Padding for the vertical edges.
+        :param padx: Padding for the horizontal edges.
+        :param sticky: Defines how the widget expands in the grid cell.
+        """
+        # Create a frame for the warning bar with a sunken border and gold background
+        self.warning_bar = tk.Frame(self.root, bd=1, relief=tk.SUNKEN, background="gold")
+        self.warning_bar.grid(row=4, column=0, columnspan=14, sticky='nsew')
+
+        # Add a label to display the warning message in the warning bar
+        text_label = tk.Label(
+            self.warning_bar,
+            text=text,
+            foreground="black",  # Text color
+            background="gold"    # Matches the frame's background
+        )
+        text_label.pack(side=tk.LEFT)
+
+        # Add a button to allow users to close the warning bar
+        close_button = tk.Button(
+            self.warning_bar,
+            text="X",
+            command=self.destroy_warning_bar,  # Call the destroy method when clicked
+            foreground="black"
+        )
+
+        close_button.pack(side=tk.RIGHT)
+
+    def destroy_warning_bar(self):
+        """
+        Destroy the warning bar if it exists to remove it from the UI.
+        """
+        if self.warning_bar is not None:
+            # Destroy the warning bar frame and set the reference to None
+            self.warning_bar.destroy()
+            self.warning_bar = None
 
     def disable_docker_ui(self):
         """
@@ -225,7 +276,7 @@ class MainWindowUI:
         # Add Help menu
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Debug Window", command=lambda: DebugPrintWindow(self.root))
+        help_menu.add_command(label="Debug Window", command=lambda: DebugPrintWindow(self))
         help_menu.add_command(label="About", command=lambda: self._show_md_content(get_file_path('markdown','help','about.md'), 'About'))
 
     def _destroy_help_menu(self):
@@ -278,7 +329,7 @@ class MainWindowUI:
         self.setting_window.settings.save_settings_to_file()
         help_window.destroy()
     
-    def _show_welcome_message(self):
+    def show_welcome_message(self):
         """
         Private method to display a welcome message.
         Display a welcome message when the application is launched.

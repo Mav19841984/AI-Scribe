@@ -29,11 +29,38 @@ import threading
 from UI.Widgets.MicrophoneSelector import MicrophoneState
 from utils.ip_utils import is_valid_url
 from enum import Enum
+import multiprocessing
 
 class SettingsKeys(Enum):
     LOCAL_WHISPER = "Built-in Speech2Text"
     WHISPER_ENDPOINT = "Speech2Text (Whisper) Endpoint"
     WHISPER_SERVER_API_KEY = "Speech2Text (Whisper) API Key"
+    WHISPER_ARCHITECTURE = "Speech2Text (Whisper) Architecture"
+    WHISPER_CPU_COUNT = "Whisper CPU Thread Count (Experimental)"
+    WHISPER_COMPUTE_TYPE = "Whisper Compute Type (Experimental)"
+    WHISPER_BEAM_SIZE = "Whisper Beam Size (Experimental)"
+    WHISPER_VAD_FILTER = "Use Whisper VAD Filter (Experimental)"
+    AUDIO_PROCESSING_TIMEOUT_LENGTH = "Audio Processing Timeout (seconds)"
+    SILERO_SPEECH_THRESHOLD = "Silero Speech Threshold"
+    USE_TRANSLATE_TASK = "Use Translate Task"
+    WHISPER_LANGUAGE_CODE = "Whisper Language Code"
+    S2T_SELF_SIGNED_CERT = "S2T Server Self-Signed Certificates"
+    LLM_ARCHITECTURE = "Architecture"
+    USE_PRESCREEN_AI_INPUT = "Use Pre-Screen AI Input"
+
+
+class Architectures(Enum):
+    CPU = ("CPU", "cpu")
+    CUDA = ("CUDA (Nvidia GPU)", "cuda")
+
+    @property
+    def label(self):
+        return self._value_[0]
+
+    @property
+    def architecture_value(self):
+        return self._value_[1]
+
 
 
 class FeatureToggle:
@@ -66,7 +93,7 @@ class SettingsWindow():
     save_settings_to_file():
         Saves the current settings to a JSON file.
     save_settings(openai_api_key, aiscribe_text, aiscribe2_text, 
-                  settings_window, preset):
+                  settings_window):
         Saves the current settings, including API keys, IP addresses, and user-defined parameters.
     load_aiscribe_from_file():
         Loads the first AI Scribe text from a file.
@@ -79,6 +106,9 @@ class SettingsWindow():
     CPU_INSTALL_FILE = "CPU_INSTALL.txt"
     NVIDIA_INSTALL_FILE = "NVIDIA_INSTALL.txt"
     STATE_FILES_DIR = "install_state"
+    DEFAULT_WHISPER_ARCHITECTURE = Architectures.CPU.architecture_value
+    DEFAULT_LLM_ARCHITECTURE = Architectures.CPU.architecture_value
+    AUTO_DETECT_LANGUAGE_CODES = ["", "auto", "Auto Detect", "None", "None (Auto Detect)"]
 
     def __init__(self):
         """Initializes the ApplicationSettings with default values."""
@@ -100,9 +130,11 @@ class SettingsWindow():
             "BlankSpace", # Represents the SettingsKeys.LOCAL_WHISPER.value checkbox that is manually placed
             "Real Time",
             "BlankSpace", # Represents the model dropdown that is manually placed
+            "BlankSpace", # Represents the mic dropdown
             SettingsKeys.WHISPER_ENDPOINT.value,
             SettingsKeys.WHISPER_SERVER_API_KEY.value,
-            "S2T Server Self-Signed Certificates",
+            "BlankSpace", # Represents the architecture dropdown that is manually placed
+            SettingsKeys.S2T_SELF_SIGNED_CERT.value,
         ]
 
         self.llm_settings = [
@@ -111,43 +143,58 @@ class SettingsWindow():
         ]
 
         self.adv_ai_settings = [
-            "use_story",
-            "use_memory",
-            "use_authors_note",
-            "use_world_info",
+            ##############################################################################################
+            # Stuff that is commented is related to KobolodCPP API and not used in the current version   #
+            # Maybe use it in the future? commented out for now, goes hand in hand with API style        #
+            ##############################################################################################
+
+            # "use_story",
+            # "use_memory",
+            # "use_authors_note",
+            # "use_world_info",
             "Use best_of",
             "best_of",
-            "max_context_length",
-            "max_length",
-            "rep_pen",
-            "rep_pen_range",
-            "rep_pen_slope",
+            # "max_context_length",
+            # "max_length",
+            # "rep_pen",
+            # "rep_pen_range",
+            # "rep_pen_slope",
             "temperature",
             "tfs",
-            "top_a",
+            # "top_a",
             "top_k",
             "top_p",
-            "typical",
-            "sampler_order",
-            "singleline",
-            "frmttriminc",
-            "frmtrmblln",
+            # "typical",
+            # "sampler_order",
+            # "singleline",
+            # "frmttriminc",
+            # "frmtrmblln",
         ]
 
         self.adv_whisper_settings = [
-            "Real Time Audio Length",
+            # "Real Time Audio Length",
+            # "BlankSpace", # Represents the whisper cuttoff
+            SettingsKeys.WHISPER_BEAM_SIZE.value,
+            SettingsKeys.WHISPER_CPU_COUNT.value,
+            SettingsKeys.WHISPER_VAD_FILTER.value,
+            SettingsKeys.WHISPER_COMPUTE_TYPE.value,
+            SettingsKeys.SILERO_SPEECH_THRESHOLD.value,
+            SettingsKeys.USE_TRANSLATE_TASK.value,
+            SettingsKeys.WHISPER_LANGUAGE_CODE.value,
+            SettingsKeys.USE_PRESCREEN_AI_INPUT.value,
         ]
 
 
         self.adv_general_settings = [
-            "Enable Scribe Template",
+            # "Enable Scribe Template", # Uncomment if you want to implement the feature right now removed as it doesn't have a real structured implementation
+            SettingsKeys.AUDIO_PROCESSING_TIMEOUT_LENGTH.value,
         ]
 
         self.editable_settings = {
-            "Model": "gpt-4",
-            "Model Endpoint": "https://api.openai.com/v1/",
+            "Model": "gemma2:2b-instruct-q8_0",
+            "Model Endpoint": "https://localhost:3334/v1",
             "Use Local LLM": True,
-            "Architecture": "CPU",
+            SettingsKeys.LLM_ARCHITECTURE.value: SettingsWindow.DEFAULT_LLM_ARCHITECTURE,
             "use_story": False,
             "use_memory": False,
             "use_authors_note": False,
@@ -172,10 +219,15 @@ class SettingsWindow():
             SettingsKeys.LOCAL_WHISPER.value: True,
             SettingsKeys.WHISPER_ENDPOINT.value: "https://localhost:2224/whisperaudio",
             SettingsKeys.WHISPER_SERVER_API_KEY.value: "",
-            "Whisper Model": "small.en",
+            SettingsKeys.WHISPER_ARCHITECTURE.value: SettingsWindow.DEFAULT_WHISPER_ARCHITECTURE,
+            SettingsKeys.WHISPER_BEAM_SIZE.value: 5,
+            SettingsKeys.WHISPER_CPU_COUNT.value: multiprocessing.cpu_count(),
+            SettingsKeys.WHISPER_VAD_FILTER.value: False,
+            SettingsKeys.WHISPER_COMPUTE_TYPE.value: "float16",
+            "Whisper Model": "medium",
             "Current Mic": "None",
             "Real Time": True,
-            "Real Time Audio Length": 5,
+            "Real Time Audio Length": 10,
             "Real Time Silence Length": 1,
             "Silence cut-off": 0.035,
             "LLM Container Name": "ollama",
@@ -185,16 +237,20 @@ class SettingsWindow():
             "Whisper Caddy Container Name": "caddy",
             "Auto Shutdown Containers on Exit": True,
             "Use Docker Status Bar": False,
-            "Preset": "Custom",
             "Show Welcome Message": True,
             "Enable Scribe Template": False,
             "Use Pre-Processing": True,
             "Use Post-Processing": False, # Disabled for now causes unexcepted behaviour
             "AI Server Self-Signed Certificates": False,
-            "S2T Server Self-Signed Certificates": False,
+            SettingsKeys.S2T_SELF_SIGNED_CERT.value: False,
             "Pre-Processing": "Please break down the conversation into a list of facts. Take the conversation and transform it to a easy to read list:\n\n",
             "Post-Processing": "\n\nUsing the provided list of facts, review the SOAP note for accuracy. Verify that all details align with the information provided in the list of facts and ensure consistency throughout. Update or adjust the SOAP note as necessary to reflect the listed facts without offering opinions or subjective commentary. Ensure that the revised note excludes a \"Notes\" section and does not include a header for the SOAP note. Provide the revised note after making any necessary corrections.",
             "Show Scrub PHI": False,
+            SettingsKeys.AUDIO_PROCESSING_TIMEOUT_LENGTH.value: 180,
+            SettingsKeys.SILERO_SPEECH_THRESHOLD.value: 0.5,
+            SettingsKeys.USE_TRANSLATE_TASK.value: False,
+            SettingsKeys.WHISPER_LANGUAGE_CODE.value: "None (Auto Detect)",
+            SettingsKeys.USE_PRESCREEN_AI_INPUT.value: True,
         }
 
         self.docker_settings = [
@@ -297,8 +353,9 @@ class SettingsWindow():
         """
         settings = {
             "openai_api_key": self.OPENAI_API_KEY,
-            "editable_settings": self.editable_settings
+            "editable_settings": self.editable_settings,
             # "api_style": self.API_STYLE # FUTURE FEATURE REVISION
+            "app_version": self.get_application_version()
         }
         with open(get_resource_path('settings.txt'), 'w') as file:
             json.dump(settings, file)
@@ -458,45 +515,6 @@ class SettingsWindow():
             else:
                 dropdown.set(models[0])
         
-
-    def load_settings_preset(self, preset_name, settings_class):
-        """
-        Load a settings preset from a file.
-
-        This method loads a settings preset from a JSON file with the given name.
-        The settings are then applied to the application settings.
-
-        Parameters:
-            preset_name (str): The name of the settings preset to load.
-
-        Returns:
-            None
-        """
-        self.editable_settings["Preset"] = preset_name
-
-        if preset_name != "Custom":
-            # load the settigns from the json preset file
-            self.load_settings_from_file("presets/" + preset_name + ".json")
-
-            self.editable_settings["Preset"] = preset_name
-            #close the settings window 
-            settings_class.close_window()
-
-            # save the settings to the file
-            self.save_settings_to_file()
-
-            if preset_name != "Local AI":
-                messagebox.showinfo("Settings Preset", "Settings preset loaded successfully. Closing settings window. Please re-open and set respective API keys.")
-
-                # Unload ai model if switching
-                # already has safety check in unload to check if model exist.
-                ModelManager.unload_model()
-            else: # if is local ai
-                # load the models here
-                ModelManager.start_model_threaded(self, self.main_window.root)
-        else:
-            messagebox.showinfo("Custom Settings", "To use custom settings then please fill in the values and save them.")
-
     def set_main_window(self, window):
         """
         Set the main window instance for the settings.
@@ -528,8 +546,20 @@ class SettingsWindow():
             ModelManager.start_model_threaded(self, self.main_window.root)
 
     def _create_settings_and_aiscribe_if_not_exist(self):
+        """
+        Create the settings and AI Scribe files if they do not exist.
+        """
         if not os.path.exists(get_resource_path('settings.txt')):
-            print("Settings file not found. Creating default settings file.")
+            architectures = self.get_available_architectures()
+            
+            # If CUDA is available, set it as the default architecture to save in settings
+            if Architectures.CUDA.label in architectures:
+                print("Settings file not found. Creating default settings file with CUDA architecture.")
+                self.editable_settings[SettingsKeys.WHISPER_ARCHITECTURE.value] = Architectures.CUDA.label
+                self.editable_settings[SettingsKeys.LLM_ARCHITECTURE.value] = Architectures.CUDA.label
+            else:
+                print("Settings file not found. Creating default settings file.")
+
             self.save_settings_to_file()
         if not os.path.exists(get_resource_path('aiscribe.txt')):
             print("AIScribe file not found. Creating default AIScribe file.")
@@ -551,10 +581,28 @@ class SettingsWindow():
         Returns:
             list: A list of available architectures for the user to choose from.
         """
-        architectures = ["CPU"]  # CPU is always available as fallback
+        architectures = [Architectures.CPU.label]  # CPU is always available as fallback
 
         # Check for NVIDIA support
         if os.path.isfile(get_file_path(self.STATE_FILES_DIR, self.NVIDIA_INSTALL_FILE)):
-            architectures.append("CUDA (Nvidia GPU)")
+            architectures.append(Architectures.CUDA.label)
 
         return architectures
+
+    def update_whisper_model(self):
+        # save the old whisper model to compare with the new model later
+        old_local_whisper = self.editable_settings[SettingsKeys.LOCAL_WHISPER.value]
+        old_whisper_architecture = self.editable_settings[SettingsKeys.WHISPER_ARCHITECTURE.value]
+        old_model = self.editable_settings["Whisper Model"]
+        old_cpu_count = self.editable_settings[SettingsKeys.WHISPER_CPU_COUNT.value]
+        old_compute_type = self.editable_settings[SettingsKeys.WHISPER_COMPUTE_TYPE.value]
+
+        # loading the model after the window is closed to prevent the window from freezing
+        # if Local Whisper is selected, compare the old model with the new model and reload the model if it has changed
+        if self.editable_settings[SettingsKeys.LOCAL_WHISPER.value] and (
+                old_local_whisper != self.editable_settings_entries[SettingsKeys.LOCAL_WHISPER.value].get() or 
+                old_model != self.editable_settings_entries["Whisper Model"].get() or 
+                old_whisper_architecture != self.editable_settings_entries[SettingsKeys.WHISPER_ARCHITECTURE.value].get() or 
+                old_cpu_count != self.editable_settings_entries[SettingsKeys.WHISPER_CPU_COUNT.value].get() or
+                old_compute_type != self.editable_settings_entries[SettingsKeys.WHISPER_COMPUTE_TYPE.value].get()):
+            self.main_window.root.event_generate("<<LoadSttModel>>")
